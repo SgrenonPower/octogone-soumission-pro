@@ -14,6 +14,7 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { Skeleton } from '@/components/ui/skeleton';
+import { Checkbox } from '@/components/ui/checkbox';
 import { useToast } from '@/hooks/use-toast';
 import { formatMontant, formatPourcentage } from '@/lib/format';
 import {
@@ -21,13 +22,27 @@ import {
   fetchAllPaliers,
   fetchRabais,
   fetchConfig,
+  fetchModulesRoi,
+  fetchParametresRoi,
   genererNumero,
   sauvegarderSoumission,
   Segment,
   Palier,
   Rabais as RabaisType,
+  ModuleRoi,
+  ParametreRoi,
 } from '@/lib/supabase-queries';
-import { Plus, Trash2, Save, FileDown, AlertCircle, Building2 } from 'lucide-react';
+import { calculerROI, DonneesROI, ResultatROI } from '@/lib/roi-calc';
+import { Plus, Trash2, Save, FileDown, AlertCircle, Building2, TrendingUp, ChevronDown } from 'lucide-react';
+import {
+  BarChart,
+  Bar,
+  XAxis,
+  YAxis,
+  Tooltip,
+  ResponsiveContainer,
+  Cell,
+} from 'recharts';
 
 // ============================================================
 // Types internes
@@ -110,6 +125,8 @@ const Calculateur = () => {
   const navigate = useNavigate();
 
   // Données depuis Supabase
+  const { data: modulesRoi = [] } = useQuery({ queryKey: ['modules-roi'], queryFn: fetchModulesRoi });
+  const { data: paramsRoi = [] } = useQuery({ queryKey: ['parametres-roi'], queryFn: fetchParametresRoi });
   const { data: segments = [], isLoading: loadingSegments } = useQuery({
     queryKey: ['segments'],
     queryFn: fetchSegments,
@@ -140,6 +157,20 @@ const Calculateur = () => {
   });
   const [notes, setNotes] = useState('');
   const [sauvegarde, setSauvegarde] = useState(false);
+  const [roiOuvert, setRoiOuvert] = useState(false);
+  const [modulesSelectionnes, setModulesSelectionnes] = useState<Set<string>>(new Set());
+  const [donneesROI, setDonneesROI] = useState<DonneesROI>({
+    nbEtablissements: 1,
+    budgetAlimentaire: 0,
+    coutsApprovisionnement: 0,
+    nbEmployesCuisine: 0,
+    nbResponsablesCommandes: 0,
+    nbEmployesTotal: 0,
+    tauxHoraireCuisine: 22,
+    tauxHoraireAdmin: 35,
+    tauxHoraireCompta: 27,
+    coutGestionDechets: 0,
+  });
 
   // Segment sélectionné
   const segment = segments.find(s => s.id === segmentId) || null;
@@ -547,6 +578,146 @@ const Calculateur = () => {
               onChange={e => setNotes(e.target.value)}
             />
           </CardContent>
+        </Card>
+
+        {/* Section ROI */}
+        <Card>
+          <CardHeader
+            className="pb-3 cursor-pointer select-none"
+            onClick={() => setRoiOuvert(v => !v)}>
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <TrendingUp className="h-4 w-4" style={{ color: 'hsl(var(--primary))' }} />
+                <CardTitle className="text-base">5. Calculateur ROI (optionnel)</CardTitle>
+              </div>
+              <ChevronDown className={`h-4 w-4 text-muted-foreground transition-transform ${roiOuvert ? 'rotate-180' : ''}`} />
+            </div>
+          </CardHeader>
+          {roiOuvert && (
+            <CardContent className="space-y-5">
+              {/* Sélection modules */}
+              <div className="space-y-2">
+                <p className="text-sm font-medium">Modules sélectionnés</p>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                  {modulesRoi.map(m => (
+                    <label key={m.id} className="flex items-center gap-2 p-2 rounded-lg border cursor-pointer hover:bg-muted/30">
+                      <Checkbox
+                        checked={modulesSelectionnes.has(m.id)}
+                        onCheckedChange={checked => {
+                          setModulesSelectionnes(prev => {
+                            const n = new Set(prev);
+                            if (checked) n.add(m.id); else n.delete(m.id);
+                            return n;
+                          });
+                        }}
+                      />
+                      <span className="text-sm">{m.nom}</span>
+                    </label>
+                  ))}
+                </div>
+              </div>
+
+              {/* Données d'entrée */}
+              <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+                {[
+                  { label: 'Budget alimentaire annuel ($)', field: 'budgetAlimentaire' },
+                  { label: 'Coûts approvisionnement ($)', field: 'coutsApprovisionnement' },
+                  { label: 'Nb employés cuisine', field: 'nbEmployesCuisine' },
+                  { label: 'Nb responsables commandes', field: 'nbResponsablesCommandes' },
+                  { label: 'Nb employés total', field: 'nbEmployesTotal' },
+                  { label: 'Taux horaire cuisine ($/h)', field: 'tauxHoraireCuisine' },
+                  { label: 'Taux horaire admin ($/h)', field: 'tauxHoraireAdmin' },
+                  { label: 'Taux horaire compta ($/h)', field: 'tauxHoraireCompta' },
+                  { label: 'Coût gestion déchets annuel ($)', field: 'coutGestionDechets' },
+                ].map(({ label, field }) => (
+                  <div key={field} className="space-y-1.5">
+                    <Label className="text-xs">{label}</Label>
+                    <Input
+                      type="number"
+                      min={0}
+                      value={donneesROI[field as keyof DonneesROI] || ''}
+                      onChange={e => setDonneesROI(prev => ({ ...prev, [field]: parseFloat(e.target.value) || 0 }))}
+                      className="h-8 text-sm"
+                    />
+                  </div>
+                ))}
+              </div>
+
+              {/* Résultats ROI */}
+              {modulesSelectionnes.size > 0 && (() => {
+                const coutOcto = Number(config.cout_octogone_mensuel_par_etablissement || 299);
+                const roi = calculerROI(
+                  { ...donneesROI, nbEtablissements: etablissements.length },
+                  modulesRoi,
+                  paramsRoi,
+                  modulesSelectionnes,
+                  coutOcto,
+                );
+                const modulesAvecEco = roi.modules.filter(m => m.selectionne && m.economieAnnuelle > 0);
+                const chartData = [
+                  { name: 'Coût Octogone', valeur: roi.coutOctogoneAnnuel, fill: 'hsl(var(--muted-foreground))' },
+                  ...modulesAvecEco.map(m => ({ name: m.nom.substring(0, 18), valeur: m.economieAnnuelle, fill: 'hsl(var(--primary))' })),
+                ];
+                return (
+                  <div className="space-y-4 pt-2 border-t">
+                    {/* Cards métriques */}
+                    <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+                      {[
+                        { label: 'Économies totales', value: formatMontant(roi.economiesTotales), color: 'hsl(var(--success))' },
+                        { label: 'Coût Octogone/an', value: formatMontant(roi.coutOctogoneAnnuel), color: 'hsl(var(--muted-foreground))' },
+                        { label: 'Bénéfice net', value: formatMontant(roi.beneficeNet), color: roi.beneficeNet >= 0 ? 'hsl(var(--success))' : 'hsl(var(--destructive))' },
+                        { label: 'ROI', value: `${roi.roiMultiplicateur}×`, color: 'hsl(var(--primary))' },
+                        { label: 'Retour en', value: `${roi.periodeRetourMois} mois`, color: 'hsl(var(--foreground))' },
+                      ].map(m => (
+                        <div key={m.label} className="p-3 rounded-lg text-center" style={{ background: 'hsl(var(--muted) / 0.5)' }}>
+                          <p className="text-xs text-muted-foreground mb-1">{m.label}</p>
+                          <p className="text-base font-bold" style={{ color: m.color }}>{m.value}</p>
+                        </div>
+                      ))}
+                    </div>
+
+                    {/* Tableau par module */}
+                    <div className="rounded-lg border overflow-hidden">
+                      <table className="w-full text-sm">
+                        <thead>
+                          <tr className="bg-muted/40 border-b">
+                            <th className="text-left px-3 py-2 text-xs font-semibold text-muted-foreground uppercase">Module</th>
+                            <th className="text-right px-3 py-2 text-xs font-semibold text-muted-foreground uppercase">Mensuel</th>
+                            <th className="text-right px-3 py-2 text-xs font-semibold text-muted-foreground uppercase">Annuel</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y">
+                          {roi.modules.filter(m => m.selectionne).map(m => (
+                            <tr key={m.moduleId}>
+                              <td className="px-3 py-2">{m.nom}</td>
+                              <td className="px-3 py-2 text-right text-muted-foreground">{formatMontant(m.economieMensuelle)}</td>
+                              <td className="px-3 py-2 text-right font-semibold" style={{ color: 'hsl(var(--success))' }}>{formatMontant(m.economieAnnuelle)}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+
+                    {/* Graphique */}
+                    {chartData.length > 1 && (
+                      <div style={{ height: 200 }}>
+                        <ResponsiveContainer width="100%" height="100%">
+                          <BarChart data={chartData} layout="vertical" margin={{ left: 4, right: 40 }}>
+                            <XAxis type="number" hide />
+                            <YAxis type="category" dataKey="name" width={110} tick={{ fontSize: 10 }} />
+                            <Tooltip formatter={(v: number) => formatMontant(v)} />
+                            <Bar dataKey="valeur" radius={[0, 4, 4, 0]}>
+                              {chartData.map((entry, i) => <Cell key={i} fill={entry.fill} />)}
+                            </Bar>
+                          </BarChart>
+                        </ResponsiveContainer>
+                      </div>
+                    )}
+                  </div>
+                );
+              })()}
+            </CardContent>
+          )}
         </Card>
 
         {/* Boutons d'action */}
