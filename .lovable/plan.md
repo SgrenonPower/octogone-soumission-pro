@@ -1,278 +1,234 @@
 
-# Octogone — Plan complet d'implémentation
+# Plan d'implémentation — Sections 4 à 12
 
-## Clarification intégrée — Règle de cumul des rabais
+## Contexte et état actuel
 
-La logique de calcul pour les rabais fonctionne en **3 couches séquentielles** :
+Le calculateur de prix (Section 1–3) est **entièrement fonctionnel** : segments, paliers, rabais, ordre d'application, frais d'intégration. La base de données contient déjà toutes les tables nécessaires (`modules_roi`, `parametres_roi`, `soumissions`, `soumission_roi`, `soumission_roi_modules`, `audit_log`, `utilisateurs`), avec les 8 modules ROI et leurs 22 paramètres correctement peuplés.
+
+Ce qui reste à construire : le **calculateur ROI**, la **gestion des soumissions**, la **génération PDF**, et les **pages d'administration**.
+
+---
+
+## Phase 1 — Calculateur ROI (Section 4)
+
+### Emplacement : section 5 de `src/pages/Calculateur.tsx`
+
+Une nouvelle section accordéon s'ajoutera sous les rabais et les notes internes, avant les boutons d'action.
+
+### Données d'entrée communes (10 champs)
 
 ```text
-COUCHE 1 — Dropdown (mutuellement exclusif)
-  └─ Choisir UNE option parmi : Aucun / Multi-sites (15%) / Volume 500+ (20%)
-
-COUCHE 2 — Toggle Engagement annuel (10%)
-  └─ S'applique par-dessus la couche 1
-
-COUCHE 3 — Toggle Projet pilote (50%)
-  └─ S'applique uniquement sur l'établissement marqué pilote
-     Par-dessus les couches 1 et 2
-
-Exemple combiné :
-  prix_brut = 1 000 $
-  → Après multi-sites (15%) : 850,00 $
-  → Après engagement (10%) : 765,00 $
-  → Après pilote sur cet étab. (50%) : 382,50 $ ← peut passer sous le minimum
+Nombre d'établissements    → lu depuis etablissements.length (automatique)
+Budget alimentaire annuel  → saisie manuelle
+Coûts d'approvisionnement  → saisie manuelle
+Nb employés cuisine        → saisie manuelle
+Nb responsables commandes  → saisie manuelle
+Nb employés total          → saisie manuelle
+Taux horaire cuisine       → saisie manuelle
+Taux horaire admin         → saisie manuelle
+Taux horaire comptabilité  → saisie manuelle
+Coût gestion déchets       → saisie manuelle
 ```
 
----
+### Formules ROI (implémentées en TypeScript pur, paramètres lus depuis `parametres_roi`)
 
-## Phase 1 — Base de données Supabase
+| Module | Économie annuelle calculée |
+|--------|---------------------------|
+| Thermomètres | saisie_moy×12 + budget×0.0075 + déchets×0.15 + 480 |
+| Produits & Recettes | budget×0.125 + nbCuisine×25×tauxCuisine + 50×tauxCuisine |
+| Gestion Inventaires | 950×12×nbEtab + appro×0.075 |
+| Inventaires temps réel | (300+100)×12×nbEtab + 4×tauxAdmin×12×nbEtab |
+| Facturation | 65×tauxCompta |
+| Paniers | nbResponsables×50×tauxAdmin |
+| RH | 72×tauxAdmin + 12×tauxCompta |
+| Tâches répétitives | 3.5×52×tauxAdmin (moyenne 2–5h/sem) |
 
-Connexion Supabase via Lovable Cloud, puis migration SQL unique créant :
-
-### Tables principales
-
-| Table | Rôle |
-|-------|------|
-| `segments` | Types de clientèle (RPA 1-4, CPE, cafétéria, traiteur, restaurant) |
-| `paliers` | Tarifs par tranches pour les restaurants |
-| `rabais` | Multi-sites, volume, engagement, pilote |
-| `config` | Frais d'intégration, validité, textes PDF, paramètres ROI globaux |
-| `modules_roi` | 8 modules logiciels Octogone |
-| `parametres_roi` | Variables de calcul par module |
-| `utilisateurs` | Vendeurs et admins |
-| `soumissions` | Soumissions avec versioning |
-| `soumission_etablissements` | Détail par établissement |
-| `soumission_rabais` | Rabais appliqués à une soumission |
-| `soumission_roi` | Données ROI agrégées |
-| `soumission_roi_modules` | Modules sélectionnés et économies |
-| `audit_log` | Journal complet des modifications |
-
-### Données initiales insérées
-
-- 8 segments (RPA Cat. 1-4, CPE, Cafétéria, Traiteur, Restaurant)
-- 5 paliers restaurants (0-60 → 200$, 61-100 → 250$, etc.)
-- 4 rabais (multi-sites 15%, volume 20%, engagement 10%, pilote 50%)
-- Config : frais intégration 3 000$, validité 30j, textes PDF
-- 8 modules ROI avec 25+ paramètres de calcul
-
-### Triggers et sécurité
-
-- Trigger `updated_at` sur `segments`, `config`, `soumissions`
-- RLS activé sur toutes les tables avec policy permissive initiale
-
----
-
-## Phase 2 — Authentification et navigation
-
-### Page de connexion (`/`)
-- Fond sombre, design épuré bleu marine
-- Champ code d'accès (type password)
-- Validation : code "octogone2025"
-- Stockage en `localStorage` → redirection vers `/calculateur`
-- Message d'erreur en français si code incorrect
-
-### Layout avec sidebar
-- Logo "Octogone" en haut
-- Navigation : Calculateur / Soumissions / Administration
-- Bouton Déconnexion en bas
-- Collapsible sur mobile (hamburger)
-- Protection des routes (redirection si non connecté)
-
----
-
-## Phase 3 — Calculateur de prix (`/calculateur`)
-
-### Structure de la page
-
-```text
-┌─────────────────────────────┬──────────────────────────┐
-│  FORMULAIRE (gauche)        │  RÉCAPITULATIF (droite)  │
-│  ─ Segment                  │  sticky, mis à jour      │
-│  ─ Infos client             │  en temps réel           │
-│  ─ Blocs établissements     │                          │
-│  ─ Rabais                   │                          │
-│  ─ [Accordéon ROI]          │                          │
-│  ─ Boutons action           │                          │
-└─────────────────────────────┴──────────────────────────┘
-```
-
-### Logique de calcul par établissement
-
-**Tarification linéaire :**
-```
-prix_brut = nombre_unités × prix_unitaire
-prix_base = MAX(prix_brut, minimum_mensuel)
-après_dropdown = prix_base × (1 - rabais_dropdown / 100)  [si sélectionné]
-après_engagement = après_dropdown × (1 - 10%)  [si toggle activé]
-prix_final = après_engagement × (1 - 50%)  [si cet établissement est pilote]
-```
-
-**Tarification paliers (restaurants) :**
-```
-trouver le palier tel que capacité_min ≤ places ≤ capacité_max
-prix_base = tarif_mensuel du palier
-→ même séquence de rabais que ci-dessus
-```
-
-**Règle pilote :** le prix peut descendre sous le minimum mensuel.
-
-### Panneau récapitulatif (sticky)
-- Ligne par établissement : nom, prix brut, prix final
-- Sous-total mensuel (somme des prix bruts)
-- Détail des rabais appliqués avec %
-- Total mensuel
-- Total annuel (× 12)
-- Frais d'intégration (nb établissements × config)
-- Coût total 1re année
-
-### Section Rabais
-- **Dropdown** : "Aucun" / "Multi-établissements (15%)" / "Volume 500+ (20%)" — un seul actif
-- **Toggles** : Engagement annuel (10%) + Projet pilote (50%) — cumulables
-- Avertissement si pilote activé sans établissement marqué pilote
-
-### Sauvegarde
-- Numéro auto-généré : `OCT-AAAA-NNN`
-- Sauvegarde dans `soumissions`, `soumission_etablissements`, `soumission_rabais`
-- Bouton "Générer PDF" (désactivé, Phase 6)
-
----
-
-## Phase 4 — Calculateur ROI (accordéon dans `/calculateur`)
-
-### Sélection des modules
-Grille 2 colonnes, chaque module = Card avec :
-- Icône lucide-react (Thermometer, ChefHat, Package, BarChart3, FileText, ShoppingCart, Users, Clock)
-- Checkbox + nom + description
-- Bordure colorée quand sélectionné
-
-### Données d'entrée contextuelles
-S'affichent seulement si au moins 1 module coché :
-- Budget alimentaire, coûts appro, nb employés cuisine/commandes/total
-- Taux horaires cuisine (22$/h), admin (35$/h), comptabilité (27$/h)
-- Coût gestion déchets (800$/an)
-
-### Formules par module
-Calculées en temps réel depuis les paramètres Supabase :
-
-- **Thermomètres** : économies saisie + pertes alimentaires + déchets + énergie
-- **Produits & Recettes** : réduction gaspillage + gains temps recherche/coûts
-- **Gestion Inventaires** : économie base × étab. + réduction appro %
-- **Inventaires temps réel** : commandes + suivi + incongruités × taux admin
-- **Facturation** : heures économisées × taux compta / 12
-- **Paniers** : nb responsables × heures × taux admin / 12
-- **RH** : heures RH × taux admin + heures compta × taux compta
-- **Tâches répétitives** : moyenne heures/semaine × 52/12 × taux admin
+La constante `cout_octogone_mensuel_par_etablissement` (299 $/mois, déjà en `config`) est utilisée pour le coût Octogone ROI — **distinct** du prix calculé de la soumission.
 
 ### Affichage des résultats
-1. Tableau par module sélectionné (économie mensuelle / annuelle)
-2. 5 cards : Économies annuelles / Coût Octogone / Bénéfice net / ROI (ex: "5.1x") / Retour (ex: "2.3 mois")
-3. Graphique barres horizontales recharts (contributions par module + barre coût)
 
-### Sauvegarde ROI
-Avec la soumission → `soumission_roi` + `soumission_roi_modules`
+- Tableau par module sélectionné : économie mensuelle | économie annuelle
+- 5 métriques cards : Économies totales / Coût Octogone / Bénéfice net / ROI (x) / Retour en mois
+- Graphique Recharts barres horizontales : économies par module vs coût Octogone
 
 ---
 
-## Phase 5 — Gestion des soumissions
+## Phase 2 — Gestion des soumissions (Section 5)
 
-### Liste (`/soumissions`)
-- Tableau : Numéro, Client, Segment(s), Total mensuel, Statut, Date, Actions
-- Filtres : statut (multi-select), segment, recherche texte
-- Tri cliquable par colonne, plus récent par défaut
+### Nouveaux fichiers et pages
+
+**`src/pages/Soumissions.tsx`** — Liste complète (remplace le placeholder actuel)
+- Tableau avec : numéro, client, segment(s), total mensuel, statut, date, actions
+- Recherche texte (nom client, numéro)
+- Filtre par statut (badges colorés : brouillon/envoyée/acceptée/expirée)
+- Tri par colonne cliquable
 - Pagination 20/page
-- Badges : bleu=brouillon, vert=envoyée, émeraude=acceptée, gris=expirée
-- Expiration automatique au chargement (statuts passés à "expirée")
-- Export CSV des soumissions filtrées
+- Actions : voir détail, dupliquer, changer statut, supprimer (avec confirmation)
+- Export CSV
 
-### Actions par soumission
-- Voir / Modifier / Dupliquer / Changer statut / Supprimer (avec confirmation)
+**`src/pages/SoumissionDetail.tsx`** — `/soumissions/:id`
+- Vue complète de la soumission (lecture seule + actions)
+- Section tarifaire + section ROI si disponible
+- Boutons : modifier, dupliquer, changer statut, générer PDF
 
-### Détail (`/soumissions/:id`)
-- Vue lecture : établissements, rabais, récap financier, section ROI
-- Notes internes éditables
-- Historique des versions (parent_id / enfants)
-- Boutons : Modifier, Dupliquer, Générer PDF, Mode présentation
+**`src/pages/SoumissionPresentation.tsx`** — `/soumissions/:id/presentation`
+- Mode plein écran, sans sidebar, sans contrôles d'édition
+- Affichage pour rencontre client
 
-### Mode présentation (`/soumissions/:id/presentation`)
-- Plein écran sans sidebar
-- Design professionnel pour rencontres client
-- Bouton discret "Quitter la présentation"
+### Fonctions backend ajoutées à `src/lib/supabase-queries.ts`
 
----
+```text
+fetchSoumissions(filtres)        → liste paginée
+fetchSoumissionById(id)          → détail complet avec établissements et rabais
+dupliquerSoumission(id)          → copie avec nouveau numéro et parent_id
+changerStatut(id, statut)        → mise à jour statut
+supprimerSoumission(id)          → soft delete ou delete
+exporterCSV(filtres)             → génération CSV côté client
+```
 
-## Phase 6 — Génération PDF
+### Nouveaux champs dans `sauvegarderSoumission`
 
-Via `jsPDF` + `jspdf-autotable` :
+La fonction actuelle sera étendue pour supporter la sauvegarde optionnelle des données ROI (`soumission_roi` + `soumission_roi_modules`) dans la même transaction.
 
-**Structure du PDF :**
-- En-tête : titre SOUMISSION, nom entreprise (config), numéro, date, client
-- Tableau établissements : Nom, Unités, Prix unitaire, Prix brut
-- Rabais appliqués avec %
-- Récapitulatif financier : mensuel, annuel, intégration, coût an 1
-- Section ROI (tableau par module, total, ROI et retour)
-- Pied de page : conditions générales, validité, numéro de page
+### Statuts avec couleurs
 
-**Comportement :** Téléchargement automatique + passage statut → "envoyée"
-
----
-
-## Phase 7 — Administration (`/admin`)
-
-### Tableau de bord
-- Cards : soumissions ce mois, valeur totale, expirant sous 7 jours
-- Graphique camembert par segment (recharts)
-- Graphique barres des 6 derniers mois (recharts)
-
-### Tarification (`/admin/tarification`)
-- Tableau éditable inline : segments linéaires (prix/unité, minimum, actif)
-- Tableau éditable : paliers restaurants (min, max, tarif) + ajout/suppression
-- Champ frais d'intégration
-- Audit log sur chaque modification
-
-### Rabais (`/admin/rabais`)
-- Tableau éditable : nom, %, type UI, groupe, condition, actif
-- Ajout d'un rabais
-- Audit log
+| Statut | Couleur |
+|--------|---------|
+| brouillon | gris |
+| envoyée | bleu |
+| acceptée | vert |
+| expirée | rouge |
 
 ---
 
-## Phase 8 — Administration avancée
+## Phase 3 — Génération PDF (Section 6)
 
-### ROI (`/admin/roi`)
-- Modules avec toggle actif/inactif
-- Paramètres éditables groupés par module (Accordion)
-- Bouton "Sauvegarder" par module
-- Config coût Octogone mensuel
-- Bouton "Réinitialiser" avec modal de confirmation
+La génération PDF se fera **côté client** en utilisant `window.print()` avec une feuille de style CSS `@media print` dédiée — sans dépendance externe lourde, compatible avec tous les navigateurs.
 
-### Utilisateurs (`/admin/utilisateurs`)
-- Liste + ajout (nom, email, rôle)
-- Toggle actif, changement de rôle
+**Structure `src/components/pdf/SoumissionPDF.tsx`**
+- Composant React rendu dans un `<div id="pdf-content">` caché
+- CSS print avec mise en page A4, polices, marges
+- Sections : en-tête / infos client / tableau établissements / rabais / totaux / ROI (si présent) / conditions / pied de page
 
-### Historique (`/admin/historique`)
-- Journal filtrable (utilisateur, table, période)
-- Pagination 50/page
-- Bouton "Annuler ce changement" avec modal + rollback + nouvel audit_log
-- Bouton "Réinitialisation complète" avec double confirmation (saisir "REINITIALISER")
-
-### Config soumissions (`/admin/soumissions`)
-- Durée validité, conditions générales, nom entreprise
+Le bouton "Générer le PDF" dans le calculateur déclenchera `window.print()` sur ce composant.
 
 ---
 
-## Phase 9 — Polissage
+## Phase 4 — Pages d'administration (Section 7)
 
-- Responsive : panneau ROI en dessous sur < 1024px, hamburger mobile
-- Toasts succès/erreur partout
-- Skeleton loaders + boutons désactivés pendant opérations async
-- Validation en français (client requis, unités min 1, pilote unique)
-- Formatage canadien : `1 234,56 $`, `17 février 2025`, `15,0 %`
-- Empty states avec illustration et CTA
-- Raccourcis : `Ctrl+S` sauvegarder, `Escape` fermer modales
-- Accessibilité : labels, focus visible, contrastes WCAG
+### Nouvelles routes à ajouter dans `App.tsx`
+
+```text
+/admin/tarification    → Segments + paliers + frais intégration
+/admin/rabais          → Gestion des rabais
+/admin/roi             → Paramètres ROI
+/admin/soumissions     → Config PDF, validité, conditions
+/admin/utilisateurs    → Gestion utilisateurs
+/admin/historique      → Journal audit log
+```
+
+### `src/pages/admin/Tarification.tsx`
+
+- Tableau éditable des segments (prix unitaire, minimum mensuel, toggle actif)
+- Section paliers restaurants (ajout/modif/suppression de lignes)
+- Champ frais d'intégration (depuis `config`)
+- Chaque modification écrit dans `audit_log`
+
+### `src/pages/admin/Rabais.tsx`
+
+- Liste des rabais avec toggle actif/inactif
+- Édition du pourcentage en ligne
+- Bouton "Ajouter un rabais temporaire"
+- Chaque modification écrit dans `audit_log`
+
+### `src/pages/admin/Roi.tsx`
+
+- Tableau éditable de tous les `parametres_roi` groupés par module
+- Édition de la valeur en ligne avec validation numérique
+- Champ coût Octogone par défaut (depuis `config`)
+
+### `src/pages/admin/ConfigSoumissions.tsx`
+
+- Durée de validité (jours)
+- Texte des conditions générales (textarea)
+- Nom de l'entreprise sur le PDF
+
+### `src/pages/admin/Utilisateurs.tsx`
+
+- Tableau des utilisateurs de la table `utilisateurs`
+- Ajout / désactivation (toggle actif)
+- Rôle : vendeur / admin
+
+### `src/pages/admin/Historique.tsx`
+
+- Journal chronologique de `audit_log`
+- Filtres : utilisateur, table modifiée, date (plage)
+- Tableau avec : qui / quand / quoi / ancienne valeur / nouvelle valeur
+- Bouton "Rollback" par ligne (restaure l'ancienne valeur)
+- Bouton "Réinitialiser tout" avec confirmation modale
 
 ---
 
-## Prochaine étape
+## Phase 5 — Navigation et routes
 
-Connexion d'un projet Supabase (Lovable Cloud) pour créer la base de données, puis implémentation séquentielle des phases 2 à 9.
+### Modifications dans `App.tsx`
+
+Ajout des routes imbriquées pour admin et soumissions :
+
+```text
+/soumissions/:id                 → SoumissionDetail
+/soumissions/:id/presentation    → SoumissionPresentation
+/admin/tarification              → AdminTarification
+/admin/rabais                    → AdminRabais
+/admin/roi                       → AdminRoi
+/admin/soumissions               → AdminConfigSoumissions
+/admin/utilisateurs              → AdminUtilisateurs
+/admin/historique                → AdminHistorique
+```
+
+---
+
+## Phase 6 — Authentification et rôles (Section 8)
+
+L'authentification actuelle (code d'accès en localStorage) sera **conservée pour la connexion**, mais les rôles seront gérés via la table `utilisateurs` existante.
+
+Une fonction `getCurrentUser()` sera ajoutée pour identifier l'utilisateur connecté (par email stocké dans la session) et déterminer son rôle (`vendeur` ou `admin`). Les routes `/admin/*` vérifieront le rôle admin avant d'afficher le contenu.
+
+Note : la table `utilisateurs` n'utilise pas l'auth Supabase native — elle est autonome, ce qui correspond à l'approche actuelle "code d'accès simple" sans inscription.
+
+---
+
+## Ordre d'implémentation
+
+```text
+Étape 1  →  Calculateur ROI (section 5 de Calculateur.tsx) + lib/roi-calc.ts
+Étape 2  →  Extension sauvegarderSoumission (ROI + multi-segments)
+Étape 3  →  Page Soumissions (liste) + SoumissionDetail
+Étape 4  →  Génération PDF (composant + bouton)
+Étape 5  →  Routes admin + pages admin (Tarification, Rabais, ROI, Config)
+Étape 6  →  Historique audit log + Utilisateurs
+Étape 7  →  Mode présentation + export CSV
+```
+
+---
+
+## Fichiers créés / modifiés
+
+| Fichier | Action |
+|---------|--------|
+| `src/lib/roi-calc.ts` | Nouveau — fonctions de calcul ROI |
+| `src/lib/supabase-queries.ts` | Étendu — fetchSoumissions, dupliquer, etc. |
+| `src/pages/Calculateur.tsx` | Étendu — section ROI accordéon |
+| `src/pages/Soumissions.tsx` | Remplacé — liste complète |
+| `src/pages/SoumissionDetail.tsx` | Nouveau |
+| `src/pages/SoumissionPresentation.tsx` | Nouveau |
+| `src/components/pdf/SoumissionPDF.tsx` | Nouveau |
+| `src/pages/admin/Tarification.tsx` | Nouveau |
+| `src/pages/admin/Rabais.tsx` | Nouveau |
+| `src/pages/admin/Roi.tsx` | Nouveau |
+| `src/pages/admin/ConfigSoumissions.tsx` | Nouveau |
+| `src/pages/admin/Utilisateurs.tsx` | Nouveau |
+| `src/pages/admin/Historique.tsx` | Nouveau |
+| `src/App.tsx` | Étendu — nouvelles routes |
+
+**Aucune migration de base de données requise** — toutes les tables nécessaires existent déjà.
