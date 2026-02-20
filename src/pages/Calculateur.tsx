@@ -380,6 +380,40 @@ const Calculateur = () => {
       if (rabaisState.engagement && rabaisEngagement) toggleRabaisIds.push(rabaisEngagement.id);
       if (rabaisState.pilote && rabaisPilote) toggleRabaisIds.push(rabaisPilote.id);
 
+      // Calculer le ROI si activé et modules sélectionnés
+      let roiPayload: import('@/lib/supabase-queries').DonneesROISauvegarde | undefined;
+      if (roiOuvert && modulesSelectionnes.size > 0) {
+        const coutOcto = Number(config.cout_octogone_mensuel_par_etablissement || 299);
+        const roiCalc = calculerROI(
+          { ...donneesROI, nbEtablissements: etablissements.length },
+          modulesRoi,
+          paramsRoi,
+          modulesSelectionnes,
+          coutOcto,
+        );
+        roiPayload = {
+          budgetAlimentaire: donneesROI.budgetAlimentaire,
+          coutsApprovisionnement: donneesROI.coutsApprovisionnement,
+          nbEmployesCuisine: donneesROI.nbEmployesCuisine,
+          nbResponsablesCommandes: donneesROI.nbResponsablesCommandes,
+          nbEmployesTotal: donneesROI.nbEmployesTotal,
+          tauxHoraireCuisine: donneesROI.tauxHoraireCuisine,
+          tauxHoraireAdmin: donneesROI.tauxHoraireAdmin,
+          tauxHoraireCompta: donneesROI.tauxHoraireCompta,
+          coutGestionDechets: donneesROI.coutGestionDechets,
+          economiesTotales: roiCalc.economiesTotales,
+          coutOctogoneAnnuel: roiCalc.coutOctogoneAnnuel,
+          roiMultiplicateur: roiCalc.roiMultiplicateur,
+          periodeRetourMois: roiCalc.periodeRetourMois,
+          modules: roiCalc.modules.map(m => ({
+            moduleId: m.moduleId,
+            selectionne: m.selectionne,
+            economieMensuelle: m.economieMensuelle,
+            economieAnnuelle: m.economieAnnuelle,
+          })),
+        };
+      }
+
       await sauvegarderSoumission({
         numero,
         nomClient: nomClient.trim(),
@@ -407,6 +441,7 @@ const Calculateur = () => {
           description: rabaisDropdown.description,
         },
         dateExpiration,
+        roi: roiPayload,
         options: options.map((o, i) => ({
           nom: o.nom.trim(),
           prixDescription: o.prixDescription.trim() || 'Sur demande',
