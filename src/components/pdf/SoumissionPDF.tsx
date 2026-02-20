@@ -27,14 +27,31 @@ const SoumissionPDF = ({ soumission, etablissements, rabais, roi, roiModules, op
     "Cette soumission est valide pour une période de 30 jours à compter de la date d'émission. Les prix sont exprimés en dollars canadiens et sont sujets à change sans préavis après la date d'expiration. Les frais d'intégration sont payables à la signature du contrat. Le prix mensuel s'applique à compter de la mise en service de chaque établissement.";
   const fraisParEtabConfig = config?.frais_integration ? Number(config.frais_integration) : null;
   useEffect(() => {
-    // Inject print CSS
+    // Inject print CSS using visibility (not display:none) so nested #pdf-content
+    // can be shown even though its ancestor #root is hidden.
     const style = document.createElement('style');
     style.id = 'pdf-print-style';
     style.textContent = `
       @media print {
-        body > * { display: none !important; }
-        #pdf-content { display: block !important; }
-        #pdf-content { position: fixed; top: 0; left: 0; width: 100%; height: 100%; z-index: 99999; background: white; }
+        /* Hide everything using visibility so children can override */
+        body * { visibility: hidden !important; }
+
+        /* Show only the PDF content and all its descendants */
+        #pdf-content,
+        #pdf-content * { visibility: visible !important; }
+
+        /* Position the PDF content at the top-left of the page */
+        #pdf-content {
+          position: fixed !important;
+          top: 0 !important;
+          left: 0 !important;
+          width: 100% !important;
+          background: white !important;
+          z-index: 99999 !important;
+          padding: 0 !important;
+          margin: 0 !important;
+        }
+
         @page { size: A4; margin: 18mm 15mm; }
         .pdf-no-break { page-break-inside: avoid; }
         .pdf-page-break { page-break-before: always; }
@@ -60,8 +77,12 @@ const SoumissionPDF = ({ soumission, etablissements, rabais, roi, roiModules, op
   return (
     <div
       id="pdf-content"
-      className="hidden"
       style={{
+        /* Hidden on screen, visible during print via @media print CSS */
+        position: 'absolute',
+        left: '-9999px',
+        top: 0,
+        width: '210mm',
         fontFamily: 'system-ui, -apple-system, sans-serif',
         color: '#1a1a2e',
         fontSize: '11pt',
