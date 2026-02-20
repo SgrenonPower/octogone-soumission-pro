@@ -75,6 +75,22 @@ export const triggerPrint = () => {
   window.print();
 };
 
+// ── Utilitaires texte ──
+const nettoyerMarkdown = (texte: string): string =>
+  texte
+    .replace(/\*\*(.*?)\*\*/g, '$1')
+    .replace(/\*(.*?)\*/g, '$1')
+    .replace(/^#+\s/gm, '')
+    .replace(/^[-*]\s/gm, '• ')
+    .trim();
+
+const formaterLigneNote = (ligne: string): string => {
+  const t = ligne.trim();
+  if (t.startsWith('•')) return t;
+  if (t.startsWith('- ') || t.startsWith('* ')) return '• ' + t.slice(2);
+  return '• ' + t;
+};
+
 // ─── Palette Octogone pour le PDF (fond blanc, accents vert)
 const P = {
   // Couleur principale : vert foncé Octogone
@@ -256,7 +272,7 @@ const SoumissionPDF = ({ soumission, etablissements, rabais, roi, roiModules, op
           Portée
         </div>
         <div style={{ fontSize: '10pt', color: '#374151', lineHeight: 1.6 }}>
-          {textePortee}
+          {nettoyerMarkdown(textePortee)}
         </div>
       </div>
 
@@ -459,15 +475,22 @@ const SoumissionPDF = ({ soumission, etablissements, rabais, roi, roiModules, op
           <div style={{ fontSize: '8pt', color: P.gray, textTransform: 'uppercase', letterSpacing: '0.07em', marginBottom: 6 }}>
             1re année (incl. intégration)
           </div>
+          {/* Prix barré = totalAnnuel + fraisInt (vrai coût sans frais offerts) */}
+          {fraisOfferts && fraisInt > 0 && (
+            <div style={{ textDecoration: 'line-through', color: P.grayLight, fontSize: '8.5pt', marginBottom: 2 }}>
+              {formatMontant(totalAnnuel + fraisInt)}
+            </div>
+          )}
           <div style={{ fontSize: '15pt', fontWeight: 800, color: P.dark, marginBottom: 4 }}>
             {fraisOfferts ? formatMontant(totalAnnuel) : formatMontant(coutAn1)}
           </div>
           {fraisOfferts ? (
             <div style={{ fontSize: '8.5pt', color: P.green, fontWeight: 600 }}>
-              <span style={{ textDecoration: 'line-through', color: P.grayLight, marginRight: 4 }}>
-                {formatMontant(coutAn1)}
+              Intégration :{' '}
+              <span style={{ textDecoration: 'line-through', color: P.grayLight }}>
+                {formatMontant(fraisInt)}
               </span>
-              Intégration offerte — {libelleOfferteRaison} ✓
+              {' '}→ Offerts ✓ — {libelleOfferteRaison}
             </div>
           ) : (
             fraisInt > 0 && (
@@ -542,8 +565,8 @@ const SoumissionPDF = ({ soumission, etablissements, rabais, roi, roiModules, op
             </div>
             <div style={{ borderTop: `1px solid ${beneficePositif ? P.greenBorder : P.amberBorder}`, paddingTop: 10, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
               <span style={{ fontWeight: 700, fontSize: '11pt', color: P.dark }}>BÉNÉFICE NET :</span>
-              <span style={{ fontWeight: 800, fontSize: '14pt', color: beneficePositif ? P.green : P.amber }}>
-                +{formatMontant(Math.abs(beneficeNetAnn))} / an {beneficePositif ? '✓' : ''}
+              <span style={{ fontWeight: 800, fontSize: '14pt', color: beneficePositif ? P.green : P.red }}>
+                {beneficePositif ? '+' : ''}{formatMontant(beneficeNetAnn)} / an {beneficePositif ? '✓' : ''}
               </span>
             </div>
             {beneficePositif && (
@@ -621,7 +644,7 @@ const SoumissionPDF = ({ soumission, etablissements, rabais, roi, roiModules, op
             <div style={{ background: P.amberBg, borderLeft: `4px solid #f59e0b`, borderRadius: 8, padding: '12px 16px' }}>
               {lignes.map((ligne: string, i: number) => (
                 <div key={i} style={{ fontSize: '10pt', color: '#78350f', lineHeight: 1.6 }}>
-                  • {ligne}
+                  {formaterLigneNote(ligne)}
                 </div>
               ))}
             </div>
