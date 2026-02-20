@@ -135,9 +135,14 @@ const SoumissionPDF = ({ soumission, etablissements, rabais, roi, roiModules }: 
           <div style={{ fontSize: '11pt', fontWeight: 700, marginBottom: 8, color: '#1e3a5f' }}>Rabais appliqués</div>
           <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
             {rabais.map((r: any) => (
-              <span key={r.id} style={{ padding: '4px 12px', background: '#dbeafe', color: '#1d4ed8', borderRadius: 20, fontSize: '9pt', fontWeight: 500 }}>
-                {r.nom} — {r.pourcentage}%
-              </span>
+              <div key={r.id} style={{ padding: '4px 12px', background: '#dbeafe', color: '#1d4ed8', borderRadius: 20, fontSize: '9pt', fontWeight: 500 }}>
+                <span>{r.nom} ({r.pourcentage}%)</span>
+                {r.description_rabais && (
+                  <span style={{ display: 'block', fontSize: '8pt', fontStyle: 'italic', opacity: 0.8, marginTop: 2 }}>
+                    {r.description_rabais}
+                  </span>
+                )}
+              </div>
             ))}
           </div>
         </div>
