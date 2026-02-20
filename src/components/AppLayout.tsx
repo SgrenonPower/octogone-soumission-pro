@@ -17,32 +17,14 @@ interface AppLayoutProps {
   children: ReactNode;
 }
 
-const navItems = [
-  {
-    label: 'Calculateur',
-    href: '/calculateur',
-    icon: Calculator,
-  },
-  {
-    label: 'Soumissions',
-    href: '/soumissions',
-    icon: FileText,
-  },
-  {
-    label: 'Administration',
-    href: '/admin',
-    icon: Settings,
-  },
-];
-
 const AppLayout = ({ children }: AppLayoutProps) => {
-  const { logout } = useAuth();
+  const { logout, utilisateur, isAdmin } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
   const [mobileOpen, setMobileOpen] = useState(false);
 
-  const handleLogout = () => {
-    logout();
+  const handleLogout = async () => {
+    await logout();
     navigate('/');
   };
 
@@ -50,6 +32,27 @@ const AppLayout = ({ children }: AppLayoutProps) => {
     if (href === '/admin') return location.pathname.startsWith('/admin');
     return location.pathname === href || location.pathname.startsWith(href + '/');
   };
+
+  const navItems = [
+    {
+      label: 'Calculateur',
+      href: '/calculateur',
+      icon: Calculator,
+      visible: true,
+    },
+    {
+      label: 'Soumissions',
+      href: '/soumissions',
+      icon: FileText,
+      visible: true,
+    },
+    {
+      label: 'Administration',
+      href: '/admin',
+      icon: Settings,
+      visible: isAdmin,
+    },
+  ];
 
   const SidebarContent = () => (
     <div className="flex flex-col h-full">
@@ -77,7 +80,7 @@ const AppLayout = ({ children }: AppLayoutProps) => {
           style={{ color: 'hsl(var(--sidebar-foreground) / 0.4)' }}>
           Menu principal
         </p>
-        {navItems.map((item) => {
+        {navItems.filter(item => item.visible).map((item) => {
           const Icon = item.icon;
           const active = isActive(item.href);
           return (
@@ -106,8 +109,31 @@ const AppLayout = ({ children }: AppLayoutProps) => {
         })}
       </nav>
 
-      {/* Déconnexion */}
-      <div className="px-3 py-4 border-t" style={{ borderColor: 'hsl(var(--sidebar-border))' }}>
+      {/* Bloc utilisateur + Déconnexion */}
+      <div className="px-3 py-4 border-t space-y-1" style={{ borderColor: 'hsl(var(--sidebar-border))' }}>
+        {/* Infos utilisateur */}
+        {utilisateur && (
+          <div className="flex items-center gap-3 px-3 py-2 rounded-lg mb-1"
+            style={{ background: 'hsl(var(--sidebar-primary) / 0.05)' }}>
+            <div className="w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold flex-shrink-0"
+              style={{
+                background: 'hsl(var(--sidebar-primary) / 0.2)',
+                color: 'hsl(var(--sidebar-primary))',
+              }}>
+              {utilisateur.nom?.charAt(0)?.toUpperCase() || '?'}
+            </div>
+            <div className="flex-1 min-w-0">
+              <p className="text-xs font-semibold truncate" style={{ color: 'hsl(var(--sidebar-foreground))' }}>
+                {utilisateur.nom}
+              </p>
+              <p className="text-xs" style={{ color: 'hsl(var(--sidebar-foreground) / 0.5)' }}>
+                {isAdmin ? 'Administrateur' : 'Vendeur'}
+              </p>
+            </div>
+          </div>
+        )}
+
+        {/* Bouton déconnexion */}
         <button
           onClick={handleLogout}
           className="flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium w-full transition-all duration-150 hover:opacity-80"

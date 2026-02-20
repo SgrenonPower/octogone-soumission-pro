@@ -19,9 +19,9 @@ import {
   DialogFooter,
 } from '@/components/ui/dialog';
 import { useToast } from '@/hooks/use-toast';
+import { supabase } from '@/integrations/supabase/client';
 import {
   fetchUtilisateurs,
-  insertUtilisateur,
   updateUtilisateur,
   Utilisateur,
 } from '@/lib/supabase-queries';
@@ -32,7 +32,8 @@ const AdminUtilisateurs = () => {
   const { toast } = useToast();
   const qc = useQueryClient();
   const [dialogOpen, setDialogOpen] = useState(false);
-  const [nouveau, setNouveau] = useState({ nom: '', email: '', role: 'vendeur' });
+  const [nouveau, setNouveau] = useState({ nom: '', email: '', role: 'vendeur', password: '' });
+  const [creation, setCreation] = useState(false);
 
   const { data: utilisateurs = [] } = useQuery({
     queryKey: ['utilisateurs'],
@@ -60,15 +61,46 @@ const AdminUtilisateurs = () => {
   };
 
   const handleAjouter = async () => {
-    if (!nouveau.nom || !nouveau.email) return;
+    if (!nouveau.nom || !nouveau.email || !nouveau.password) return;
+    if (nouveau.password.length < 6) {
+      toast({ title: 'Le mot de passe doit contenir au moins 6 caractères.', variant: 'destructive' });
+      return;
+    }
+
+    setCreation(true);
     try {
-      await insertUtilisateur({ nom: nouveau.nom, email: nouveau.email, role: nouveau.role, actif: true });
+      const { data: sessionData } = await supabase.auth.getSession();
+      const token = sessionData.session?.access_token;
+
+      if (!token) {
+        toast({ title: 'Session expirée. Veuillez vous reconnecter.', variant: 'destructive' });
+        return;
+      }
+
+      const response = await supabase.functions.invoke('create-auth-user', {
+        body: {
+          email: nouveau.email,
+          password: nouveau.password,
+          nom: nouveau.nom,
+          role: nouveau.role,
+        },
+      });
+
+      if (response.error || response.data?.error) {
+        const msg = response.data?.error || response.error?.message || 'Erreur inconnue';
+        toast({ title: `Erreur : ${msg}`, variant: 'destructive' });
+        return;
+      }
+
       qc.invalidateQueries({ queryKey: ['utilisateurs'] });
       setDialogOpen(false);
-      setNouveau({ nom: '', email: '', role: 'vendeur' });
-      toast({ title: 'Utilisateur ajouté' });
-    } catch {
-      toast({ title: 'Erreur', variant: 'destructive' });
+      setNouveau({ nom: '', email: '', role: 'vendeur', password: '' });
+      toast({ title: 'Utilisateur créé avec succès.' });
+    } catch (err) {
+      console.error(err);
+      toast({ title: 'Erreur lors de la création du compte.', variant: 'destructive' });
+    } finally {
+      setCreation(false);
     }
   };
 
@@ -159,6 +191,11 @@ const AdminUtilisateurs = () => {
               <Input type="email" value={nouveau.email} onChange={e => setNouveau(p => ({ ...p, email: e.target.value }))} placeholder="jean@octogone.com" />
             </div>
             <div className="space-y-1.5">
+              <label className="text-sm font-medium">Mot de passe temporaire</label>
+              <Input type="password" value={nouveau.password} onChange={e => setNouveau(p => ({ ...p, password: e.target.value }))} placeholder="Minimum 6 caractères" />
+              <p className="text-xs text-muted-foreground">L'utilisateur devra changer son mot de passe à la première connexion.</p>
+            </div>
+            <div className="space-y-1.5">
               <label className="text-sm font-medium">Rôle</label>
               <Select value={nouveau.role} onValueChange={v => setNouveau(p => ({ ...p, role: v }))}>
                 <SelectTrigger>
@@ -172,8 +209,15 @@ const AdminUtilisateurs = () => {
             </div>
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setDialogOpen(false)}>Annuler</Button>
-            <Button onClick={handleAjouter} disabled={!nouveau.nom || !nouveau.email}>Ajouter</Button>
+            <Button variant="outline" onClick={() => setDialogOpen(false)} disabled={creation}>Annuler</Button>
+            <Button onClick={handleAjouter} disabled={!nouveau.nom || !nouveau.email || !nouveau.password || creation}>
+              {creation ? (
+                <span className="flex items-center gap-2">
+                  <div className="w-4 h-4 border-2 border-current border-t-transparent rounded-full animate-spin" />
+                  Création…
+                </span>
+              ) : 'Créer le compte'}
+            </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
