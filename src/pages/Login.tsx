@@ -1,5 +1,5 @@
 import { useState, KeyboardEvent } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, Link } from 'react-router-dom';
 import { useAuth } from '@/hooks/useAuth';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -113,10 +113,18 @@ const Login = () => {
 
             {/* Champ mot de passe */}
             <div className="space-y-2">
-              <Label htmlFor="password" className="text-sm font-medium"
-                style={{ color: 'hsl(210 40% 80%)' }}>
-                Mot de passe
-              </Label>
+              <div className="flex items-center justify-between">
+                <Label htmlFor="password" className="text-sm font-medium"
+                  style={{ color: 'hsl(210 40% 80%)' }}>
+                  Mot de passe
+                </Label>
+                <Link
+                  to="/forgot-password"
+                  className="text-xs transition-opacity hover:opacity-80"
+                  style={{ color: 'hsl(var(--accent))' }}>
+                  Mot de passe oublié ?
+                </Link>
+              </div>
               <div className="relative">
                 <div className="absolute left-3 top-1/2 -translate-y-1/2"
                   style={{ color: 'hsl(210 40% 65%)' }}>
