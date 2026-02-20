@@ -133,7 +133,7 @@ const SoumissionDetail = () => {
     );
   }
 
-  const { soumission, etablissements, rabais, roi } = data;
+  const { soumission, etablissements, rabais, roi, options } = data;
 
   return (
     <div className="p-6 space-y-6 max-w-5xl mx-auto">
@@ -267,6 +267,25 @@ const SoumissionDetail = () => {
         </Card>
       )}
 
+      {/* Options supplémentaires */}
+      {options && options.length > 0 && (
+        <Card>
+          <CardHeader className="pb-3">
+            <CardTitle className="text-base">Options supplémentaires</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="space-y-0">
+              {options.map((opt: any) => (
+                <div key={opt.id} className="flex justify-between text-sm py-2.5 border-b last:border-0">
+                  <span className="font-medium">{opt.nom}</span>
+                  <span className="text-muted-foreground">{opt.prix_description || 'Sur demande'}</span>
+                </div>
+              ))}
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
       {/* Totaux */}
       <Card>
         <CardHeader className="pb-3">
@@ -351,6 +370,7 @@ const SoumissionDetail = () => {
           rabais={rabais}
           roi={roi.soumission_roi}
           roiModules={roi.modules}
+          options={options || []}
         />
       )}
 

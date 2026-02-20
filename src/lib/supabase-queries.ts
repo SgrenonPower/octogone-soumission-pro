@@ -11,6 +11,13 @@ export type Soumission = Database['public']['Tables']['soumissions']['Row'];
 export type SoumissionEtablissement = Database['public']['Tables']['soumission_etablissements']['Row'];
 export type Utilisateur = Database['public']['Tables']['utilisateurs']['Row'];
 export type AuditLog = Database['public']['Tables']['audit_log']['Row'];
+export type SoumissionOption = {
+  id: string;
+  soumission_id: string;
+  nom: string;
+  prix_description: string;
+  ordre: number;
+};
 
 // ============================================================
 // Segments / Paliers / Rabais / Config
@@ -197,12 +204,14 @@ export const fetchSoumissionById = async (id: string): Promise<{
   etablissements: (SoumissionEtablissement & { segment?: Segment })[];
   rabais: Rabais[];
   roi: { soumission_roi: Database['public']['Tables']['soumission_roi']['Row'] | null; modules: Database['public']['Tables']['soumission_roi_modules']['Row'][] };
+  options: SoumissionOption[];
 }> => {
-  const [soumissionRes, etablissementsRes, rabaisRes, roiRes] = await Promise.all([
+  const [soumissionRes, etablissementsRes, rabaisRes, roiRes, optionsRes] = await Promise.all([
     supabase.from('soumissions').select('*').eq('id', id).single(),
     supabase.from('soumission_etablissements').select('*, segments(*)').eq('soumission_id', id),
     supabase.from('soumission_rabais').select('*, rabais(*)').eq('soumission_id', id),
     supabase.from('soumission_roi').select('*').eq('soumission_id', id).maybeSingle(),
+    supabase.from('soumission_options' as any).select('*').eq('soumission_id', id).order('ordre') as any,
   ]);
 
   if (soumissionRes.error) throw soumissionRes.error;
@@ -254,6 +263,7 @@ export const fetchSoumissionById = async (id: string): Promise<{
     etablissements,
     rabais,
     roi: { soumission_roi: roiRes.data, modules: roiModules },
+    options: ((optionsRes as any).data || []) as SoumissionOption[],
   };
 };
 
@@ -328,6 +338,24 @@ export const dupliquerSoumission = async (id: string): Promise<string> => {
         type_rabais: r.type_rabais,
         pourcentage_applique: r.pourcentage_applique,
         description_rabais: r.description_rabais,
+      }))
+    );
+  }
+
+  // Dupliquer les options supplémentaires
+  const { data: optionsOriginales } = await (supabase as any)
+    .from('soumission_options')
+    .select('*')
+    .eq('soumission_id', id)
+    .order('ordre');
+
+  if (optionsOriginales && optionsOriginales.length > 0) {
+    await (supabase as any).from('soumission_options').insert(
+      optionsOriginales.map((o: any) => ({
+        soumission_id: nouvelle.id,
+        nom: o.nom,
+        prix_description: o.prix_description,
+        ordre: o.ordre,
       }))
     );
   }
@@ -413,6 +441,11 @@ export const sauvegarderSoumission = async (params: {
   };
   dateExpiration: Date;
   roi?: DonneesROISauvegarde;
+  options?: Array<{
+    nom: string;
+    prixDescription: string;
+    ordre: number;
+  }>;
 }) => {
   const { data: soumission, error: errSoumission } = await supabase
     .from('soumissions')
@@ -525,6 +558,18 @@ export const sauvegarderSoumission = async (params: {
         })));
       if (errModules) throw errModules;
     }
+  }
+
+  // Insérer les options supplémentaires
+  if (params.options && params.options.length > 0) {
+    await (supabase as any).from('soumission_options').insert(
+      params.options.map(o => ({
+        soumission_id: soumission.id,
+        nom: o.nom,
+        prix_description: o.prixDescription,
+        ordre: o.ordre,
+      }))
+    );
   }
 
   return soumission;

@@ -1,6 +1,6 @@
 import { useEffect } from 'react';
 import { formatMontant, formatDate } from '@/lib/format';
-import { Soumission, SoumissionEtablissement, Rabais } from '@/lib/supabase-queries';
+import { Soumission, SoumissionEtablissement, Rabais, SoumissionOption } from '@/lib/supabase-queries';
 import { Database } from '@/integrations/supabase/types';
 
 type SoumissionRoi = Database['public']['Tables']['soumission_roi']['Row'];
@@ -12,13 +12,14 @@ interface SoumissionPDFProps {
   rabais: Rabais[];
   roi: SoumissionRoi | null;
   roiModules: SoumissionRoiModule[];
+  options?: SoumissionOption[];
 }
 
 export const triggerPrint = () => {
   window.print();
 };
 
-const SoumissionPDF = ({ soumission, etablissements, rabais, roi, roiModules }: SoumissionPDFProps) => {
+const SoumissionPDF = ({ soumission, etablissements, rabais, roi, roiModules, options = [] }: SoumissionPDFProps) => {
   useEffect(() => {
     // Inject print CSS
     const style = document.createElement('style');
@@ -241,6 +242,36 @@ const SoumissionPDF = ({ soumission, etablissements, rabais, roi, roiModules }: 
               Période de retour sur investissement : {roi.periode_retour_mois} mois seulement
             </span>
           </div>
+        </div>
+      )}
+
+      {/* Options supplémentaires */}
+      {options.length > 0 && (
+        <div className="pdf-no-break" style={{ marginBottom: 24 }}>
+          <div style={{ fontSize: '11pt', fontWeight: 700, marginBottom: 10, color: '#1e3a5f' }}>
+            Options supplémentaires (au besoin)
+          </div>
+          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '10pt' }}>
+            <thead>
+              <tr style={{ background: '#f0f4f8' }}>
+                <th style={{ padding: '8px 12px', textAlign: 'left', fontWeight: 600, color: '#6b7280' }}>Option</th>
+                <th style={{ padding: '8px 12px', textAlign: 'right', fontWeight: 600, color: '#6b7280' }}>Prix</th>
+              </tr>
+            </thead>
+            <tbody>
+              {options.map((opt, i) => (
+                <tr key={opt.id} style={{ borderBottom: '1px solid #e5e7eb', background: i % 2 === 0 ? '#f9fafb' : 'white' }}>
+                  <td style={{ padding: '8px 12px' }}>{opt.nom}</td>
+                  <td style={{ padding: '8px 12px', textAlign: 'right', color: '#6b7280' }}>
+                    {opt.prix_description || 'Sur demande'}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          <p style={{ fontSize: '8.5pt', color: '#9ca3af', marginTop: 8, fontStyle: 'italic' }}>
+            Ces options sont informatives et ne sont pas incluses dans le total de l'abonnement.
+          </p>
         </div>
       )}
 
