@@ -4,7 +4,9 @@ import { Soumission, SoumissionEtablissement, Rabais, SoumissionOption } from '@
 import { Database } from '@/integrations/supabase/types';
 
 type SoumissionRoi = Database['public']['Tables']['soumission_roi']['Row'];
-type SoumissionRoiModule = Database['public']['Tables']['soumission_roi_modules']['Row'];
+type SoumissionRoiModule = Database['public']['Tables']['soumission_roi_modules']['Row'] & {
+  modules_roi?: { nom: string; description: string | null } | null;
+};
 
 interface SoumissionPDFProps {
   soumission: Soumission;
@@ -26,21 +28,15 @@ const SoumissionPDF = ({ soumission, etablissements, rabais, roi, roiModules, op
   const conditionsGenerales = config?.conditions_generales ||
     "Cette soumission est valide pour une période de 30 jours à compter de la date d'émission. Les prix sont exprimés en dollars canadiens et sont sujets à change sans préavis après la date d'expiration. Les frais d'intégration sont payables à la signature du contrat. Le prix mensuel s'applique à compter de la mise en service de chaque établissement.";
   const fraisParEtabConfig = config?.frais_integration ? Number(config.frais_integration) : null;
+
   useEffect(() => {
-    // Inject print CSS using visibility (not display:none) so nested #pdf-content
-    // can be shown even though its ancestor #root is hidden.
     const style = document.createElement('style');
     style.id = 'pdf-print-style';
     style.textContent = `
       @media print {
-        /* Hide everything using visibility so children can override */
         body * { visibility: hidden !important; }
-
-        /* Show only the PDF content and all its descendants */
         #pdf-content,
         #pdf-content * { visibility: visible !important; }
-
-        /* Position the PDF content at the top-left of the page */
         #pdf-content {
           position: fixed !important;
           top: 0 !important;
@@ -51,7 +47,6 @@ const SoumissionPDF = ({ soumission, etablissements, rabais, roi, roiModules, op
           padding: 0 !important;
           margin: 0 !important;
         }
-
         @page { size: A4; margin: 18mm 15mm; }
         .pdf-no-break { page-break-inside: avoid; }
         .pdf-page-break { page-break-before: always; }
@@ -66,19 +61,33 @@ const SoumissionPDF = ({ soumission, etablissements, rabais, roi, roiModules, op
     };
   }, []);
 
+  // ---- Calculs dérivés ----
   const totalMensuel = Number(soumission.total_mensuel || 0);
   const totalAnnuel = Number(soumission.total_annuel || 0);
   const fraisInt = Number(soumission.frais_integration || 0);
   const fraisOfferts = (soumission as any).frais_integration_offerts ?? false;
   const coutAn1 = Number(soumission.cout_total_an1 || 0);
 
+  const totalBrutMensuel = etablissements.reduce((sum, e) => sum + Number(e.prix_brut || 0), 0);
+  const totalBrutAnnuel = totalBrutMensuel * 12;
+  const economiePrixMensuel = totalBrutMensuel - totalMensuel;
+  const economiePrixAnnuel = totalBrutAnnuel - totalAnnuel;
+  const pctEconomiePrix = totalBrutMensuel > 0 ? (economiePrixMensuel / totalBrutMensuel) * 100 : 0;
+  const aDesRabais = economiePrixMensuel > 0.01;
+
   const modulesSelectionnes = roiModules.filter(m => m.selectionne);
+  const hasRoi = roi && modulesSelectionnes.length > 0;
+
+  const economiesTotalesAnn = hasRoi ? Number(roi!.economies_totales || 0) : 0;
+  const economiesTotalesMens = economiesTotalesAnn / 12;
+  const beneficeNetAnn = economiesTotalesAnn - totalAnnuel;
+  const beneficeNetMens = economiesTotalesMens - totalMensuel;
+  const beneficePositif = beneficeNetAnn >= 0;
 
   return (
     <div
       id="pdf-content"
       style={{
-        /* Hidden on screen, visible during print via @media print CSS */
         position: 'absolute',
         left: '-9999px',
         top: 0,
@@ -89,8 +98,8 @@ const SoumissionPDF = ({ soumission, etablissements, rabais, roi, roiModules, op
         lineHeight: '1.5',
       }}
     >
-      {/* En-tête */}
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 32, paddingBottom: 16, borderBottom: '2px solid #1e3a5f' }}>
+      {/* ── EN-TÊTE ── */}
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 28, paddingBottom: 16, borderBottom: '2px solid #1e3a5f' }}>
         <div>
           <div style={{ fontSize: '22pt', fontWeight: 800, color: '#1e3a5f', marginBottom: 4 }}>{nomEntreprise}</div>
           <div style={{ fontSize: '9pt', color: '#6b7280' }}>{sousTitreEntreprise}</div>
@@ -108,10 +117,10 @@ const SoumissionPDF = ({ soumission, etablissements, rabais, roi, roiModules, op
         </div>
       </div>
 
-      {/* Informations client */}
-      <div className="pdf-no-break" style={{ marginBottom: 24, padding: '12px 16px', background: '#f0f4f8', borderRadius: 8, borderLeft: '4px solid #1e3a5f' }}>
+      {/* ── CLIENT ── */}
+      <div className="pdf-no-break" style={{ marginBottom: 28, padding: '12px 16px', background: '#f0f4f8', borderRadius: 8, borderLeft: '4px solid #1e3a5f' }}>
         <div style={{ fontSize: '9pt', fontWeight: 600, color: '#6b7280', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 4 }}>
-          CLIENT
+          PROPOSITION COMMERCIALE POUR
         </div>
         <div style={{ fontSize: '14pt', fontWeight: 700 }}>{soumission.nom_client}</div>
         <div style={{ fontSize: '9pt', color: '#6b7280', marginTop: 2 }}>
@@ -119,54 +128,76 @@ const SoumissionPDF = ({ soumission, etablissements, rabais, roi, roiModules, op
         </div>
       </div>
 
-      {/* Tableau établissements */}
+      {/* ── SECTION 1 : VOTRE INVESTISSEMENT ── */}
       <div className="pdf-no-break" style={{ marginBottom: 24 }}>
-        <div style={{ fontSize: '11pt', fontWeight: 700, marginBottom: 10, color: '#1e3a5f' }}>
-          Détail par établissement
+        <div style={{ fontSize: '13pt', fontWeight: 800, color: '#1e3a5f', marginBottom: 4 }}>
+          Votre investissement
         </div>
+        <div style={{ fontSize: '9pt', color: '#6b7280', marginBottom: 12 }}>
+          Détail par établissement avec les conditions négociées
+        </div>
+
+        {/* Tableau établissements enrichi */}
         <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '10pt' }}>
           <thead>
             <tr style={{ background: '#1e3a5f', color: 'white' }}>
               <th style={{ padding: '8px 12px', textAlign: 'left', fontWeight: 600 }}>Établissement</th>
               <th style={{ padding: '8px 12px', textAlign: 'center', fontWeight: 600 }}>Unités</th>
-              <th style={{ padding: '8px 12px', textAlign: 'right', fontWeight: 600 }}>Prix brut/mois</th>
-              <th style={{ padding: '8px 12px', textAlign: 'right', fontWeight: 600 }}>Prix final/mois</th>
+              {aDesRabais && (
+                <th style={{ padding: '8px 12px', textAlign: 'right', fontWeight: 600 }}>Prix régulier</th>
+              )}
+              <th style={{ padding: '8px 12px', textAlign: 'right', fontWeight: 600 }}>Votre prix</th>
+              {aDesRabais && (
+                <th style={{ padding: '8px 12px', textAlign: 'right', fontWeight: 600 }}>Vous économisez</th>
+              )}
             </tr>
           </thead>
           <tbody>
-            {etablissements.map((e, i) => (
-              <tr key={e.id} style={{ background: i % 2 === 0 ? '#f9fafb' : 'white', borderBottom: '1px solid #e5e7eb' }}>
-                <td style={{ padding: '8px 12px' }}>
-                  {e.nom_etablissement || `Établissement ${i + 1}`}
-                  {e.est_pilote && (
-                    <span style={{ marginLeft: 8, fontSize: '8pt', padding: '2px 6px', background: '#dbeafe', color: '#1d4ed8', borderRadius: 4 }}>
-                      PILOTE
-                    </span>
+            {etablissements.map((e, i) => {
+              const brut = Number(e.prix_brut || 0);
+              const final = Number(e.prix_final || 0);
+              const eco = brut - final;
+              const aRabaisLigne = eco > 0.01;
+              return (
+                <tr key={e.id} style={{ background: i % 2 === 0 ? '#f9fafb' : 'white', borderBottom: '1px solid #e5e7eb' }}>
+                  <td style={{ padding: '8px 12px' }}>
+                    {e.nom_etablissement || `Établissement ${i + 1}`}
+                    {e.est_pilote && (
+                      <span style={{ marginLeft: 8, fontSize: '8pt', padding: '2px 6px', background: '#dbeafe', color: '#1d4ed8', borderRadius: 4 }}>
+                        PILOTE
+                      </span>
+                    )}
+                  </td>
+                  <td style={{ padding: '8px 12px', textAlign: 'center' }}>{e.nombre_unites}</td>
+                  {aDesRabais && (
+                    <td style={{ padding: '8px 12px', textAlign: 'right', color: '#9ca3af', textDecoration: aRabaisLigne ? 'line-through' : 'none' }}>
+                      {formatMontant(brut)}
+                    </td>
                   )}
-                </td>
-                <td style={{ padding: '8px 12px', textAlign: 'center' }}>{e.nombre_unites}</td>
-                <td style={{ padding: '8px 12px', textAlign: 'right', color: '#6b7280', textDecoration: Number(e.prix_brut) !== Number(e.prix_final) ? 'line-through' : 'none' }}>
-                  {formatMontant(Number(e.prix_brut || 0))}
-                </td>
-                <td style={{ padding: '8px 12px', textAlign: 'right', fontWeight: 700 }}>
-                  {formatMontant(Number(e.prix_final || 0))}
-                </td>
-              </tr>
-            ))}
+                  <td style={{ padding: '8px 12px', textAlign: 'right', fontWeight: 700, color: '#1e3a5f' }}>
+                    {formatMontant(final)}
+                  </td>
+                  {aDesRabais && (
+                    <td style={{ padding: '8px 12px', textAlign: 'right', color: aRabaisLigne ? '#059669' : '#9ca3af', fontWeight: aRabaisLigne ? 600 : 400 }}>
+                      {aRabaisLigne ? `−\u00a0${formatMontant(eco)}` : '—'}
+                    </td>
+                  )}
+                </tr>
+              );
+            })}
           </tbody>
         </table>
       </div>
 
-      {/* Rabais */}
+      {/* Badges rabais */}
       {rabais.length > 0 && (
-        <div className="pdf-no-break" style={{ marginBottom: 24 }}>
-          <div style={{ fontSize: '11pt', fontWeight: 700, marginBottom: 8, color: '#1e3a5f' }}>Rabais appliqués</div>
+        <div className="pdf-no-break" style={{ marginBottom: 20 }}>
           <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
             {rabais.map((r: any) => (
-              <div key={r.id} style={{ padding: '4px 12px', background: '#dbeafe', color: '#1d4ed8', borderRadius: 20, fontSize: '9pt', fontWeight: 500 }}>
-                <span>{r.nom} ({r.pourcentage}%)</span>
+              <div key={r.id} style={{ padding: '4px 12px', background: '#d1fae5', color: '#065f46', borderRadius: 20, fontSize: '9pt', fontWeight: 600 }}>
+                ✓ {r.nom} (−{r.pourcentage}%)
                 {r.description_rabais && (
-                  <span style={{ display: 'block', fontSize: '8pt', fontStyle: 'italic', opacity: 0.8, marginTop: 2 }}>
+                  <span style={{ display: 'block', fontSize: '8pt', fontStyle: 'italic', opacity: 0.85, marginTop: 1 }}>
                     {r.description_rabais}
                   </span>
                 )}
@@ -176,107 +207,173 @@ const SoumissionPDF = ({ soumission, etablissements, rabais, roi, roiModules, op
         </div>
       )}
 
-      {/* Totaux */}
-      <div className="pdf-no-break" style={{ marginBottom: 32 }}>
-        <div style={{ fontSize: '11pt', fontWeight: 700, marginBottom: 10, color: '#1e3a5f' }}>Récapitulatif financier</div>
-        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '10.5pt' }}>
-          <tbody>
-            <tr style={{ borderBottom: '1px solid #e5e7eb' }}>
-              <td style={{ padding: '8px 12px', color: '#6b7280' }}>Total mensuel</td>
-              <td style={{ padding: '8px 12px', textAlign: 'right', fontWeight: 600 }}>{formatMontant(totalMensuel)}</td>
-            </tr>
-            <tr style={{ borderBottom: '1px solid #e5e7eb' }}>
-              <td style={{ padding: '8px 12px', color: '#6b7280' }}>Total annuel (×12)</td>
-              <td style={{ padding: '8px 12px', textAlign: 'right', fontWeight: 600 }}>{formatMontant(totalAnnuel)}</td>
-            </tr>
-            {fraisOfferts ? (
-              <tr style={{ borderBottom: '1px solid #e5e7eb' }}>
-                <td style={{ padding: '8px 12px', color: '#6b7280' }}>
-                  Frais d'intégration
-                  <span style={{ fontSize: '9pt', marginLeft: 8, color: '#9ca3af' }}>
-                    (valeur {formatMontant(fraisInt)})
-                  </span>
-                </td>
-                <td style={{ padding: '8px 12px', textAlign: 'right' }}>
-                  <span style={{ textDecoration: 'line-through', color: '#9ca3af', marginRight: 8 }}>
-                    {formatMontant(fraisInt)}
-                  </span>
-                  <span style={{ color: '#059669', fontWeight: 700 }}>0,00 $ (gratuit – projet pilote)</span>
-                </td>
-              </tr>
-            ) : (
-              <tr style={{ borderBottom: '1px solid #e5e7eb' }}>
-                <td style={{ padding: '8px 12px', color: '#6b7280' }}>
-                  {fraisParEtabConfig
-                    ? `Frais d'intégration (${etablissements.length} étab. × ${formatMontant(fraisParEtabConfig)})`
-                    : `Frais d'intégration (${etablissements.length} étab.)`}
-                </td>
-                <td style={{ padding: '8px 12px', textAlign: 'right', fontWeight: 600 }}>{formatMontant(fraisInt)}</td>
-              </tr>
-            )}
-            <tr style={{ background: '#1e3a5f', color: 'white' }}>
-              <td style={{ padding: '10px 12px', fontWeight: 700, fontSize: '11pt' }}>Coût total 1re année</td>
-              <td style={{ padding: '10px 12px', textAlign: 'right', fontWeight: 800, fontSize: '13pt' }}>{formatMontant(coutAn1)}</td>
-            </tr>
-          </tbody>
-        </table>
+      {/* Cartes récapitulatif */}
+      <div className="pdf-no-break" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 12, marginBottom: 28 }}>
+        {/* Mensuel */}
+        <div style={{ padding: '14px 16px', background: '#1e3a5f', borderRadius: 10, textAlign: 'center' }}>
+          <div style={{ fontSize: '8pt', color: 'rgba(255,255,255,0.6)', textTransform: 'uppercase', letterSpacing: '0.07em', marginBottom: 6 }}>
+            Mensuel
+          </div>
+          <div style={{ fontSize: '15pt', fontWeight: 800, color: 'white', marginBottom: 4 }}>
+            {formatMontant(totalMensuel)}
+          </div>
+          {aDesRabais && (
+            <>
+              <div style={{ fontSize: '8.5pt', color: 'rgba(255,255,255,0.5)', textDecoration: 'line-through', marginBottom: 2 }}>
+                {formatMontant(totalBrutMensuel)}
+              </div>
+              <div style={{ fontSize: '8.5pt', color: '#6ee7b7', fontWeight: 600 }}>
+                −{pctEconomiePrix.toFixed(1)}%
+              </div>
+            </>
+          )}
+        </div>
+
+        {/* Annuel */}
+        <div style={{ padding: '14px 16px', background: '#f0f4f8', borderRadius: 10, textAlign: 'center' }}>
+          <div style={{ fontSize: '8pt', color: '#6b7280', textTransform: 'uppercase', letterSpacing: '0.07em', marginBottom: 6 }}>
+            Annuel
+          </div>
+          <div style={{ fontSize: '15pt', fontWeight: 800, color: '#1e3a5f', marginBottom: 4 }}>
+            {formatMontant(totalAnnuel)}
+          </div>
+          {aDesRabais && (
+            <>
+              <div style={{ fontSize: '8.5pt', color: '#9ca3af', textDecoration: 'line-through', marginBottom: 2 }}>
+                {formatMontant(totalBrutAnnuel)}
+              </div>
+              <div style={{ fontSize: '8.5pt', color: '#059669', fontWeight: 600 }}>
+                Économie : {formatMontant(economiePrixAnnuel)}/an
+              </div>
+            </>
+          )}
+        </div>
+
+        {/* 1re année */}
+        <div style={{ padding: '14px 16px', background: '#f0f4f8', borderRadius: 10, textAlign: 'center' }}>
+          <div style={{ fontSize: '8pt', color: '#6b7280', textTransform: 'uppercase', letterSpacing: '0.07em', marginBottom: 6 }}>
+            1re année (incl. intégration)
+          </div>
+          <div style={{ fontSize: '15pt', fontWeight: 800, color: '#1e3a5f', marginBottom: 4 }}>
+            {fraisOfferts ? formatMontant(totalAnnuel) : formatMontant(coutAn1)}
+          </div>
+          {fraisOfferts ? (
+            <div style={{ fontSize: '8.5pt', color: '#059669', fontWeight: 600 }}>
+              <span style={{ textDecoration: 'line-through', color: '#9ca3af', marginRight: 4 }}>
+                {formatMontant(coutAn1)}
+              </span>
+              Intégration offerte ✓
+            </div>
+          ) : (
+            fraisInt > 0 && (
+              <div style={{ fontSize: '8.5pt', color: '#6b7280' }}>
+                dont {formatMontant(fraisInt)} d'intégration
+              </div>
+            )
+          )}
+        </div>
       </div>
 
-      {/* ROI */}
-      {roi && modulesSelectionnes.length > 0 && (
+      {/* ── SECTION 2 : CE QUE VOUS GAGNEZ (ROI) ── */}
+      {hasRoi && (
         <div className="pdf-page-break">
-          <div style={{ fontSize: '14pt', fontWeight: 800, color: '#1e3a5f', marginBottom: 20, paddingTop: 16 }}>
-            Analyse de retour sur investissement
+          <div style={{ fontSize: '13pt', fontWeight: 800, color: '#1e3a5f', marginBottom: 4 }}>
+            Ce que vous gagnez avec {nomEntreprise}
+          </div>
+          <div style={{ fontSize: '9pt', color: '#6b7280', marginBottom: 16 }}>
+            Estimation des économies générées grâce aux modules sélectionnés
           </div>
 
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr', gap: 12, marginBottom: 24 }}>
-            {[
-              { label: 'Économies annuelles', value: formatMontant(Number(roi.economies_totales || 0)), bg: '#d1fae5', color: '#065f46' },
-              { label: 'Coût Octogone/an', value: formatMontant(Number(roi.cout_octogone_annuel || 0)), bg: '#f0f4f8', color: '#1e3a5f' },
-              { label: 'Bénéfice net', value: formatMontant(Number((roi.economies_totales || 0) - (roi.cout_octogone_annuel || 0))), bg: '#dbeafe', color: '#1d4ed8' },
-              { label: 'ROI', value: `${roi.roi_multiplicateur}× votre investissement`, bg: '#1e3a5f', color: 'white' },
-            ].map(m => (
-              <div key={m.label} style={{ padding: '12px 14px', background: m.bg, borderRadius: 8, textAlign: 'center' }}>
-                <div style={{ fontSize: '8pt', color: m.color, opacity: 0.7, textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 6 }}>{m.label}</div>
-                <div style={{ fontSize: '12pt', fontWeight: 800, color: m.color }}>{m.value}</div>
-              </div>
-            ))}
-          </div>
-
-          <div style={{ fontSize: '10.5pt', fontWeight: 700, marginBottom: 10, color: '#1e3a5f' }}>Économies par module</div>
-          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '10pt' }}>
+          {/* Tableau des modules orienté bénéfices */}
+          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '10pt', marginBottom: 20 }}>
             <thead>
               <tr style={{ background: '#f0f4f8' }}>
-                <th style={{ padding: '8px 12px', textAlign: 'left', fontWeight: 600, color: '#6b7280' }}>Module</th>
-                <th style={{ padding: '8px 12px', textAlign: 'right', fontWeight: 600, color: '#6b7280' }}>Économie mensuelle</th>
-                <th style={{ padding: '8px 12px', textAlign: 'right', fontWeight: 600, color: '#6b7280' }}>Économie annuelle</th>
+                <th style={{ padding: '8px 12px', textAlign: 'left', fontWeight: 600, color: '#1e3a5f' }}>Module</th>
+                <th style={{ padding: '8px 12px', textAlign: 'left', fontWeight: 600, color: '#1e3a5f' }}>Ce que ça règle</th>
+                <th style={{ padding: '8px 12px', textAlign: 'right', fontWeight: 600, color: '#1e3a5f' }}>Économie/mois</th>
+                <th style={{ padding: '8px 12px', textAlign: 'right', fontWeight: 600, color: '#1e3a5f' }}>Économie/an</th>
               </tr>
             </thead>
             <tbody>
               {modulesSelectionnes.map((m, i) => (
-                <tr key={m.id} style={{ borderBottom: '1px solid #e5e7eb', background: i % 2 === 0 ? '#f9fafb' : 'white' }}>
-                  <td style={{ padding: '8px 12px' }}>Module {i + 1}</td>
-                  <td style={{ padding: '8px 12px', textAlign: 'right' }}>{formatMontant(Number(m.economie_mensuelle || 0))}</td>
-                  <td style={{ padding: '8px 12px', textAlign: 'right', fontWeight: 600 }}>{formatMontant(Number(m.economie_annuelle || 0))}</td>
+                <tr key={m.id} style={{ background: i % 2 === 0 ? '#f9fafb' : 'white', borderBottom: '1px solid #e5e7eb' }}>
+                  <td style={{ padding: '8px 12px', fontWeight: 600, color: '#1e3a5f' }}>
+                    {(m as any).modules_roi?.nom || `Module ${i + 1}`}
+                  </td>
+                  <td style={{ padding: '8px 12px', color: '#6b7280', fontSize: '9pt' }}>
+                    {(m as any).modules_roi?.description || ''}
+                  </td>
+                  <td style={{ padding: '8px 12px', textAlign: 'right', color: '#059669', fontWeight: 600 }}>
+                    {formatMontant(Number(m.economie_mensuelle || 0))}
+                  </td>
+                  <td style={{ padding: '8px 12px', textAlign: 'right', fontWeight: 700, color: '#059669' }}>
+                    {formatMontant(Number(m.economie_annuelle || 0))}
+                  </td>
                 </tr>
               ))}
-              <tr style={{ background: '#1e3a5f', color: 'white' }}>
-                <td style={{ padding: '8px 12px', fontWeight: 700 }}>Total des économies</td>
-                <td style={{ padding: '8px 12px', textAlign: 'right', fontWeight: 700 }}>{formatMontant(Number(roi.economies_totales || 0) / 12)}</td>
-                <td style={{ padding: '8px 12px', textAlign: 'right', fontWeight: 700 }}>{formatMontant(Number(roi.economies_totales || 0))}</td>
+              <tr style={{ background: '#065f46', color: 'white' }}>
+                <td colSpan={2} style={{ padding: '9px 12px', fontWeight: 700 }}>Total des économies générées</td>
+                <td style={{ padding: '9px 12px', textAlign: 'right', fontWeight: 700 }}>{formatMontant(economiesTotalesMens)}</td>
+                <td style={{ padding: '9px 12px', textAlign: 'right', fontWeight: 800, fontSize: '11pt' }}>{formatMontant(economiesTotalesAnn)}</td>
               </tr>
             </tbody>
           </table>
 
-          <div style={{ marginTop: 16, padding: '10px 14px', background: '#d1fae5', borderRadius: 8 }}>
-            <span style={{ fontWeight: 700, color: '#065f46' }}>
-              Période de retour sur investissement : {roi.periode_retour_mois} mois seulement
-            </span>
+          {/* Bloc verdict comparatif */}
+          <div className="pdf-no-break" style={{
+            padding: '18px 20px',
+            borderRadius: 10,
+            border: `2px solid ${beneficePositif ? '#059669' : '#f59e0b'}`,
+            background: beneficePositif ? '#f0fdf4' : '#fffbeb',
+            marginBottom: 20,
+          }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 8, fontSize: '10pt' }}>
+              <span style={{ color: '#6b7280' }}>Votre investissement Octogone :</span>
+              <span style={{ fontWeight: 600, color: '#1e3a5f' }}>{formatMontant(totalAnnuel)} / an</span>
+            </div>
+            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 10, fontSize: '10pt' }}>
+              <span style={{ color: '#6b7280' }}>Vos économies générées :</span>
+              <span style={{ fontWeight: 600, color: '#059669' }}>−{formatMontant(economiesTotalesAnn)} / an</span>
+            </div>
+            <div style={{ borderTop: `1px solid ${beneficePositif ? '#86efac' : '#fcd34d'}`, paddingTop: 10, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <span style={{ fontWeight: 700, fontSize: '11pt', color: '#1e3a5f' }}>BÉNÉFICE NET :</span>
+              <span style={{ fontWeight: 800, fontSize: '14pt', color: beneficePositif ? '#059669' : '#d97706' }}>
+                +{formatMontant(Math.abs(beneficeNetAnn))} / an {beneficePositif ? '✓' : ''}
+              </span>
+            </div>
+            {beneficePositif && (
+              <div style={{ marginTop: 10, display: 'flex', gap: 20, fontSize: '9.5pt', color: '#065f46' }}>
+                <span>Chaque dollar investi vous en rapporte <strong>{roi!.roi_multiplicateur}×</strong></span>
+                <span>Retour sur investissement en <strong>{roi!.periode_retour_mois} mois</strong> seulement</span>
+              </div>
+            )}
+            {!beneficePositif && (
+              <div style={{ marginTop: 8, fontSize: '9pt', color: '#92400e', fontStyle: 'italic' }}>
+                Ce scénario ne génère pas encore de bénéfice net. Ajustez les modules pour optimiser.
+              </div>
+            )}
+          </div>
+
+          {/* ── SECTION 3 : LE VERDICT ── */}
+          <div className="pdf-no-break" style={{
+            padding: '16px 20px',
+            borderRadius: 10,
+            background: '#eff6ff',
+            border: '1px solid #bfdbfe',
+            marginBottom: 24,
+          }}>
+            <div style={{ fontSize: '9.5pt', color: '#1e40af', fontStyle: 'italic', lineHeight: 1.7 }}>
+              En résumé, pour un investissement mensuel de <strong>{formatMontant(totalMensuel)}</strong>,{' '}
+              {nomEntreprise} vous permet d'économiser <strong>{formatMontant(economiesTotalesMens)}</strong> par mois,
+              {' '}soit un bénéfice net de <strong style={{ color: '#059669' }}>{formatMontant(Math.abs(beneficeNetMens))}</strong>{' '}
+              {beneficePositif ? 'chaque mois' : 'à atteindre'}.
+              {beneficePositif && ` Votre investissement est rentabilisé en ${roi!.periode_retour_mois} mois seulement.`}
+            </div>
           </div>
         </div>
       )}
 
-      {/* Options supplémentaires */}
+      {/* ── OPTIONS SUPPLÉMENTAIRES ── */}
       {options.length > 0 && (
         <div className="pdf-no-break" style={{ marginBottom: 24 }}>
           <div style={{ fontSize: '11pt', fontWeight: 700, marginBottom: 10, color: '#1e3a5f' }}>
@@ -306,7 +403,7 @@ const SoumissionPDF = ({ soumission, etablissements, rabais, roi, roiModules, op
         </div>
       )}
 
-      {/* Notes importantes */}
+      {/* ── NOTES ── */}
       {(() => {
         const notesPerso = ((soumission as any).notes_personnalisees || '').trim();
         const lignes = notesPerso ? notesPerso.split('\n').filter(Boolean) : [];
@@ -318,7 +415,7 @@ const SoumissionPDF = ({ soumission, etablissements, rabais, roi, roiModules, op
             </div>
             <div style={{ background: '#fffbeb', borderLeft: '4px solid #f59e0b', borderRadius: 8, padding: '12px 16px' }}>
               {lignes.map((ligne: string, i: number) => (
-                <div key={i} style={{ fontSize: '10pt', color: '#78350f', lineHeight: 1.6, wordBreak: 'break-word' }}>
+                <div key={i} style={{ fontSize: '10pt', color: '#78350f', lineHeight: 1.6 }}>
                   • {ligne}
                 </div>
               ))}
@@ -327,16 +424,16 @@ const SoumissionPDF = ({ soumission, etablissements, rabais, roi, roiModules, op
         );
       })()}
 
-      {/* Conditions */}
-      <div className="pdf-no-break" style={{ marginTop: 40, paddingTop: 20, borderTop: '1px solid #e5e7eb' }}>
+      {/* ── CONDITIONS ── */}
+      <div className="pdf-no-break" style={{ marginTop: 36, paddingTop: 20, borderTop: '1px solid #e5e7eb' }}>
         <div style={{ fontSize: '10pt', fontWeight: 700, marginBottom: 8, color: '#1e3a5f' }}>Conditions générales</div>
         <div style={{ fontSize: '9pt', color: '#6b7280', lineHeight: 1.6 }}>
           {conditionsGenerales}
         </div>
       </div>
 
-      {/* Pied de page */}
-      <div style={{ marginTop: 32, paddingTop: 12, borderTop: '2px solid #1e3a5f', display: 'flex', justifyContent: 'space-between', fontSize: '9pt', color: '#6b7280' }}>
+      {/* ── PIED DE PAGE ── */}
+      <div style={{ marginTop: 28, paddingTop: 12, borderTop: '2px solid #1e3a5f', display: 'flex', justifyContent: 'space-between', fontSize: '9pt', color: '#6b7280' }}>
         <span>{nomEntreprise}</span>
         <span>{soumission.numero}</span>
         <span>Confidentiel</span>

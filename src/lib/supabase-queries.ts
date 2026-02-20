@@ -249,13 +249,13 @@ export const fetchSoumissionById = async (id: string): Promise<{
     return null;
   }).filter(Boolean);
 
-  let roiModules: Database['public']['Tables']['soumission_roi_modules']['Row'][] = [];
+  let roiModules: (Database['public']['Tables']['soumission_roi_modules']['Row'] & { modules_roi?: { nom: string; description: string | null } | null })[] = [];
   if (roiRes.data) {
     const { data: modules } = await supabase
       .from('soumission_roi_modules')
-      .select('*')
+      .select('*, modules_roi(nom, description)')
       .eq('soumission_roi_id', roiRes.data.id);
-    roiModules = modules || [];
+    roiModules = (modules || []) as any;
   }
 
   return {
