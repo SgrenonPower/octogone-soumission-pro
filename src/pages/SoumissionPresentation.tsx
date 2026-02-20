@@ -3,7 +3,67 @@ import { useQuery } from '@tanstack/react-query';
 import { Button } from '@/components/ui/button';
 import { formatMontant, formatDate } from '@/lib/format';
 import { fetchSoumissionById, fetchConfig } from '@/lib/supabase-queries';
-import { X, TrendingUp, CheckCircle } from 'lucide-react';
+import { X, TrendingUp, CheckCircle, Thermometer, BookOpen, Package, BarChart3, FileText, ShoppingCart, Users, Repeat } from 'lucide-react';
+import type { LucideIcon } from 'lucide-react';
+
+// ── Mapping slug → perte invisible ──
+interface PerteData {
+  Icon: LucideIcon;
+  titre: string;
+  description: string;
+  stat: string;
+}
+
+const PERTES_INVISIBLES: Record<string, PerteData> = {
+  'thermometres': {
+    Icon: Thermometer,
+    titre: 'Bris de chaîne de froid',
+    description: 'Pertes alimentaires dues aux variations de température non détectées',
+    stat: '60 % des cuisines : au moins 1 incident/an',
+  },
+  'produits-recettes': {
+    Icon: BookOpen,
+    titre: 'Gaspillage par surproduction',
+    description: 'Sans recettes standardisées, chaque cuisinier prépare "à peu près" — les surplus finissent à la poubelle',
+    stat: '4 à 10 % des achats alimentaires gaspillés',
+  },
+  'inventaires': {
+    Icon: Package,
+    titre: 'Commandes à l\'aveugle',
+    description: 'Sans visibilité sur les stocks, on commande en double ou trop tard — surstock et ruptures',
+    stat: '5 à 10 % des approvisionnements perdus',
+  },
+  'inventaires-temps-reel': {
+    Icon: BarChart3,
+    titre: 'Écarts invisibles',
+    description: 'Les incongruités d\'inventaire passent inaperçues pendant des semaines',
+    stat: 'Pertes non détectées pendant des mois',
+  },
+  'facturation': {
+    Icon: FileText,
+    titre: 'Heures perdues en saisie manuelle',
+    description: 'La facturation papier consomme un temps fou et génère des erreurs',
+    stat: '65 heures/an de travail administratif évitable',
+  },
+  'paniers-commandes': {
+    Icon: ShoppingCart,
+    titre: 'Temps perdu en commandes manuelles',
+    description: 'Chaque responsable passe des heures à commander par téléphone ou courriel',
+    stat: '50 heures/an par responsable',
+  },
+  'ressources-humaines': {
+    Icon: Users,
+    titre: 'Administration RH manuelle',
+    description: 'Horaires, paies, suivis — tout est fait à la main, tout prend trop de temps',
+    stat: '72 heures/an en gestion RH évitable',
+  },
+  'taches-repetitives': {
+    Icon: Repeat,
+    titre: 'Tâches répétées sans automatisation',
+    description: 'Des heures chaque semaine à refaire les mêmes vérifications, rapports, suivis',
+    stat: '2 à 5 heures/semaine gaspillées',
+  },
+};
 
 const SoumissionPresentation = () => {
   const { id } = useParams<{ id: string }>();
@@ -109,6 +169,89 @@ const SoumissionPresentation = () => {
             {soumission.date_expiration && ` — Valide jusqu'au ${formatDate(soumission.date_expiration)}`}
           </p>
         </div>
+
+        {/* ══ SECTION "VOS PERTES INVISIBLES" (uniquement si ROI actif) ══ */}
+        {hasRoi && (() => {
+          const budgetAlimentaire = Number(roi.soumission_roi!.budget_alimentaire || 0);
+          const pertesAvecDonnees = modulesSelectionnes
+            .map((m: any) => {
+              const slug = m.modules_roi?.slug || '';
+              const perte = PERTES_INVISIBLES[slug];
+              return perte ? { ...perte, id: m.id } : null;
+            })
+            .filter(Boolean) as (PerteData & { id: string })[];
+
+          if (pertesAvecDonnees.length === 0) return null;
+
+          return (
+            <section className="space-y-5 rounded-2xl p-6 border" style={{
+              background: 'rgba(239,68,68,0.04)',
+              borderColor: 'rgba(239,68,68,0.2)',
+            }}>
+              {/* En-tête */}
+              <div>
+                <h3 className="text-xl font-bold" style={{ color: '#f87171' }}>
+                  Ce que vos factures ne vous montrent pas
+                </h3>
+                <p className="text-sm mt-1 italic" style={{ color: C.fgMuted }}>
+                  Vos factures alimentaires vous indiquent combien vous dépensez. Mais elles ne révèlent jamais combien vous perdez.
+                  Sans système de suivi, ces pertes restent invisibles — comme une passoire dont personne ne connaît l'existence.
+                </p>
+              </div>
+
+              {/* Grille de cartes */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                {pertesAvecDonnees.map(perte => {
+                  const { Icon } = perte;
+                  return (
+                    <div key={perte.id} className="rounded-xl p-4 flex flex-col gap-3" style={{
+                      background: 'rgba(239,68,68,0.09)',
+                      border: '1px solid rgba(239,68,68,0.25)',
+                    }}>
+                      <div className="flex items-center gap-3">
+                        <div className="w-9 h-9 rounded-lg flex items-center justify-center flex-shrink-0" style={{ background: 'rgba(239,68,68,0.18)' }}>
+                          <Icon className="h-4 w-4" style={{ color: '#f87171' }} />
+                        </div>
+                        <span className="font-semibold text-sm" style={{ color: C.fg }}>{perte.titre}</span>
+                      </div>
+                      <p className="text-xs leading-relaxed" style={{ color: C.fgMuted }}>{perte.description}</p>
+                      <div className="inline-flex items-center self-start px-2.5 py-1 rounded-full text-xs font-bold" style={{
+                        background: 'rgba(239,68,68,0.18)',
+                        color: 'rgba(239,68,68,0.9)',
+                      }}>
+                        {perte.stat}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+
+              {/* Encadré chiffre-choc */}
+              {budgetAlimentaire > 0 && (
+                <div className="rounded-xl p-4 text-sm" style={{
+                  background: 'rgba(245,158,11,0.08)',
+                  border: '1px solid rgba(245,158,11,0.3)',
+                  color: C.fgMuted,
+                }}>
+                  En moyenne, les établissements de gestion alimentaire perdent entre 5 et 15 % de leur budget alimentaire
+                  en pertes invisibles chaque année. Pour un budget de{' '}
+                  <strong style={{ color: '#fbbf24' }}>
+                    {new Intl.NumberFormat('fr-CA', { style: 'currency', currency: 'CAD', maximumFractionDigits: 0 }).format(budgetAlimentaire)}
+                  </strong>,
+                  cela représente entre{' '}
+                  <strong style={{ color: '#fbbf24' }}>
+                    {new Intl.NumberFormat('fr-CA', { style: 'currency', currency: 'CAD', maximumFractionDigits: 0 }).format(budgetAlimentaire * 0.05)}
+                  </strong>
+                  {' '}et{' '}
+                  <strong style={{ color: '#fbbf24' }}>
+                    {new Intl.NumberFormat('fr-CA', { style: 'currency', currency: 'CAD', maximumFractionDigits: 0 }).format(budgetAlimentaire * 0.15)}
+                  </strong>
+                  {' '}de pertes potentielles annuelles.
+                </div>
+              )}
+            </section>
+          );
+        })()}
 
         {/* ══ SECTION 1 : VOTRE INVESTISSEMENT ══ */}
         <section className="space-y-5">
