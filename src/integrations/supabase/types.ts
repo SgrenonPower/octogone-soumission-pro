@@ -500,6 +500,7 @@ export type Database = {
           numero: string
           parent_id: string | null
           statut: string
+          texte_portee: string | null
           total_annuel: number | null
           total_mensuel: number | null
           updated_at: string | null
@@ -519,6 +520,7 @@ export type Database = {
           numero: string
           parent_id?: string | null
           statut?: string
+          texte_portee?: string | null
           total_annuel?: number | null
           total_mensuel?: number | null
           updated_at?: string | null
@@ -538,6 +540,7 @@ export type Database = {
           numero?: string
           parent_id?: string | null
           statut?: string
+          texte_portee?: string | null
           total_annuel?: number | null
           total_mensuel?: number | null
           updated_at?: string | null
