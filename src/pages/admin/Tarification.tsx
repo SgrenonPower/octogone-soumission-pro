@@ -21,6 +21,8 @@ import {
   logAudit,
   Segment,
   Palier,
+  ModuleProduit,
+  PrixModuleProduit,
 } from '@/lib/supabase-queries';
 import { Save, Plus, Trash2, ArrowLeft } from 'lucide-react';
 import { Link } from 'react-router-dom';
@@ -29,8 +31,9 @@ const AdminTarification = () => {
   const { toast } = useToast();
   const qc = useQueryClient();
   const [editing, setEditing] = useState<Record<string, Partial<Segment & Palier>>>({});
-  const [editingModules, setEditingModules] = useState<Record<string, string>>({}); // prixModuleId → new value
   const [savingModuleId, setSavingModuleId] = useState<string | null>(null);
+  // moduleEditKey = `${segment_id}__${module_produit_id}` → new value string
+  const [editingModules, setEditingModules] = useState<Record<string, string>>({});
   const [newPalier, setNewPalier] = useState<{ segmentId: string; min: string; max: string; tarif: string } | null>(null);
   const [fraisEdit, setFraisEdit] = useState('');
   const [savingFrais, setSavingFrais] = useState(false);
@@ -42,6 +45,9 @@ const AdminTarification = () => {
   const { data: config = {} } = useQuery({ queryKey: ['config'], queryFn: fetchConfig });
 
   const segmentRestaurant = segments.find(s => s.type_tarification === 'paliers');
+  const segmentsActifs = segments.filter(s => s.actif !== false);
+
+  // ---- Segment handlers ----
 
   const handleSaveSegment = async (seg: Segment) => {
     const changes = editing[seg.id];
@@ -65,6 +71,12 @@ const AdminTarification = () => {
       toast({ title: 'Erreur', variant: 'destructive' });
     }
   };
+
+  const setField = (id: string, field: string, value: any) => {
+    setEditing(prev => ({ ...prev, [id]: { ...prev[id], [field]: value } }));
+  };
+
+  // ---- Palier handlers ----
 
   const handleSavePalier = async (p: Palier) => {
     const changes = editing[p.id];
@@ -109,6 +121,8 @@ const AdminTarification = () => {
     }
   };
 
+  // ---- Frais intégration handler ----
+
   const handleSaveFrais = async () => {
     setSavingFrais(true);
     try {
@@ -131,17 +145,41 @@ const AdminTarification = () => {
     }
   };
 
-  const setField = (id: string, field: string, value: any) => {
-    setEditing(prev => ({ ...prev, [id]: { ...prev[id], [field]: value } }));
+  // ---- Prix module produit handler ----
+
+  const moduleKey = (segmentId: string, moduleProduitId: string) => `${segmentId}__${moduleProduitId}`;
+
+  const getPrixModule = (segmentId: string, moduleProduitId: string): PrixModuleProduit | undefined =>
+    prixModules.find(pm => pm.segment_id === segmentId && pm.module_produit_id === moduleProduitId);
+
+  const handleSaveModule = async (segmentId: string, mod: ModuleProduit) => {
+    const key = moduleKey(segmentId, mod.id);
+    const newVal = editingModules[key];
+    if (newVal === undefined) return;
+
+    const pm = getPrixModule(segmentId, mod.id);
+    if (!pm) return;
+
+    setSavingModuleId(key);
+    try {
+      await updatePrixModuleProduit(pm.id, parseFloat(newVal) || 0);
+      setEditingModules(prev => { const n = { ...prev }; delete n[key]; return n; });
+      qc.invalidateQueries({ queryKey: ['prix-modules-produit'] });
+      toast({ title: `Prix ${mod.nom} mis à jour` });
+    } catch {
+      toast({ title: 'Erreur', variant: 'destructive' });
+    } finally {
+      setSavingModuleId(null);
+    }
   };
 
   return (
-    <div className="p-6 space-y-6 max-w-4xl">
+    <div className="p-6 space-y-6 max-w-5xl">
       <div className="flex items-center gap-3">
         <Link to="/admin"><Button variant="ghost" size="icon"><ArrowLeft className="h-4 w-4" /></Button></Link>
         <div>
           <h1 className="text-2xl font-bold">Tarification</h1>
-          <p className="text-sm text-muted-foreground">Segments, paliers et frais d'intégration</p>
+          <p className="text-sm text-muted-foreground">Segments, paliers, modules produit et frais d'intégration</p>
         </div>
       </div>
 
@@ -167,14 +205,14 @@ const AdminTarification = () => {
         </CardContent>
       </Card>
 
-      {/* Segments */}
+      {/* Segments linéaires */}
       <Card>
         <CardHeader className="pb-3">
           <CardTitle className="text-base">Segments de clientèle</CardTitle>
         </CardHeader>
         <CardContent>
           <div className="space-y-4">
-            {segments.filter(s => s.type_tarification === 'lineaire').map(seg => (
+            {segmentsActifs.filter(s => s.type_tarification === 'lineaire').map(seg => (
               <div key={seg.id} className="p-4 rounded-lg border space-y-3">
                 <div className="flex items-center justify-between">
                   <p className="font-medium text-sm">{seg.nom}</p>
@@ -221,6 +259,100 @@ const AdminTarification = () => {
           </div>
         </CardContent>
       </Card>
+
+      {/* Prix des modules produit par segment */}
+      {modulesProduit.length > 0 && (
+        <Card>
+          <CardHeader className="pb-3">
+            <CardTitle className="text-base">Prix des modules produit par segment</CardTitle>
+            <p className="text-sm text-muted-foreground">
+              Ces prix s'ajoutent cumulativement au prix de base du segment.
+            </p>
+          </CardHeader>
+          <CardContent>
+            <div className="rounded-lg border overflow-hidden">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="bg-muted/40 border-b">
+                    <th className="text-left px-4 py-2.5 text-xs font-semibold text-muted-foreground uppercase">Segment</th>
+                    <th className="text-right px-4 py-2.5 text-xs font-semibold text-muted-foreground uppercase">Base (v3)</th>
+                    {modulesProduit.map(mod => (
+                      <th key={mod.id} className="text-right px-4 py-2.5 text-xs font-semibold text-muted-foreground uppercase">
+                        {mod.nom}
+                      </th>
+                    ))}
+                    <th className="px-4 py-2.5 w-12"></th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y">
+                  {segmentsActifs.map(seg => {
+                    const rowKey = seg.id;
+                    const hasChanges = modulesProduit.some(mod => editingModules[moduleKey(rowKey, mod.id)] !== undefined);
+                    return (
+                      <tr key={seg.id} className="hover:bg-muted/20">
+                        <td className="px-4 py-3">
+                          <div className="font-medium text-sm">{seg.nom}</div>
+                          <div className="text-xs text-muted-foreground capitalize">{seg.unite}</div>
+                        </td>
+                        <td className="px-4 py-3 text-right text-sm text-muted-foreground">
+                          {seg.type_tarification === 'paliers'
+                            ? 'paliers'
+                            : formatMontant(Number(seg.prix_unitaire || 0))}
+                        </td>
+                        {modulesProduit.map(mod => {
+                          const key = moduleKey(seg.id, mod.id);
+                          const pm = getPrixModule(seg.id, mod.id);
+                          const valeurActuelle = pm ? Number(pm.prix_unitaire) : null;
+                          const valeurEditee = editingModules[key];
+                          return (
+                            <td key={mod.id} className="px-4 py-3 text-right">
+                              {pm ? (
+                                <div className="flex items-center justify-end gap-1">
+                                  <Input
+                                    type="number"
+                                    step="0.01"
+                                    min={0}
+                                    value={valeurEditee !== undefined ? valeurEditee : (valeurActuelle ?? '')}
+                                    onChange={e => setEditingModules(prev => ({ ...prev, [key]: e.target.value }))}
+                                    className="h-7 w-24 text-right text-xs"
+                                  />
+                                  <span className="text-xs text-muted-foreground whitespace-nowrap">$</span>
+                                </div>
+                              ) : (
+                                <span className="text-xs text-muted-foreground">—</span>
+                              )}
+                            </td>
+                          );
+                        })}
+                        <td className="px-4 py-3 text-right">
+                          {hasChanges && (
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              className="h-7 px-2"
+                              disabled={savingModuleId !== null}
+                              onClick={async () => {
+                                for (const mod of modulesProduit) {
+                                  await handleSaveModule(seg.id, mod);
+                                }
+                              }}
+                            >
+                              <Save className="h-3.5 w-3.5" />
+                            </Button>
+                          )}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+            <p className="text-xs text-muted-foreground mt-2">
+              Unité : $/lit/mois (ou $/mois en forfait pour les paliers). Modifiez une cellule puis cliquez sur l'icône sauvegarder à droite.
+            </p>
+          </CardContent>
+        </Card>
+      )}
 
       {/* Paliers restaurants */}
       {segmentRestaurant && (
@@ -307,6 +439,40 @@ const AdminTarification = () => {
           </CardContent>
         </Card>
       )}
+
+      {/* Rabais volume — info */}
+      <Card>
+        <CardHeader className="pb-3">
+          <CardTitle className="text-base">Rabais volume automatiques</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="rounded-lg border overflow-hidden">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="bg-muted/40 border-b">
+                  <th className="text-left px-4 py-2.5 text-xs font-semibold text-muted-foreground uppercase">Seuil d'unités</th>
+                  <th className="text-right px-4 py-2.5 text-xs font-semibold text-muted-foreground uppercase">Rabais appliqué</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y">
+                {[
+                  { seuil: '≥ 300 unités', rabais: '5 %' },
+                  { seuil: '≥ 500 unités', rabais: '10 %' },
+                  { seuil: '≥ 1 000 unités', rabais: '15 %' },
+                ].map(row => (
+                  <tr key={row.seuil} className="hover:bg-muted/20">
+                    <td className="px-4 py-2.5 font-medium">{row.seuil}</td>
+                    <td className="px-4 py-2.5 text-right" style={{ color: 'hsl(var(--success))' }}>{row.rabais}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          <p className="text-xs text-muted-foreground mt-2">
+            Ces paliers sont calculés automatiquement par établissement. Ils s'appliquent en premier avant tout autre rabais.
+          </p>
+        </CardContent>
+      </Card>
     </div>
   );
 };
