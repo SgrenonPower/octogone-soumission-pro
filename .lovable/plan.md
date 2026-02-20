@@ -1,525 +1,328 @@
 
-# Section « Options supplémentaires » (add-ons)
+# Audit anti-hardcoded — Rapport et plan de correction
 
-## Analyse de l'état actuel
+## Inventaire complet des valeurs hardcodées
 
-### Architecture existante
+Après lecture exhaustive de tous les fichiers sources, voici les violations classées par sévérité.
 
-Le calculateur actuel (994 lignes) est organisé en sections numérotées :
-- Section 1 : Segment de clientèle (dropdown global)
-- Section 2 : Informations client
-- Section 3 : Établissements
-- Section 4 : Rabais (dropdown + toggles + frais offerts)
-- Section 5 : Calculateur ROI (collapsible)
-- Section 6 : Notes et conditions spéciales (collapsible)
+### Sévérité CRITIQUE — Valeurs de calcul ou contenu PDF qui ignorent Supabase
 
-La sauvegarde passe par `sauvegarderSoumission()` dans `supabase-queries.ts` qui insère dans `soumissions`, `soumission_etablissements`, `soumission_rabais`, et optionnellement `soumission_roi`.
+| # | Fichier | Ligne | Valeur hardcodée | Ce qui doit la remplacer |
+|---|---|---|---|---|
+| 1 | `SoumissionPDF.tsx` | 303–306 | Texte complet des conditions générales | `config.conditions_generales` |
+| 2 | `SoumissionPDF.tsx` | 68, 312 | `"Octogone 360"` (en-tête + pied) | `config.nom_entreprise` |
+| 3 | `SoumissionPDF.tsx` | 69 | `"Plateforme de gestion alimentaire"` (sous-titre) | `config.sous_titre_entreprise` (nouvelle clé) |
+| 4 | `SoumissionPresentation.tsx` | 44 | `"Octogone 360"` (barre header) | `config.nom_entreprise` |
+| 5 | `SoumissionPresentation.tsx` | 243 | `"Octogone 360 — ... — Valide 30 jours"` | `config.nom_entreprise` + `config.validite_soumission_jours` |
+| 6 | `Calculateur.tsx` | 72–76 | `DEFAUTS_RABAIS = { 'multi-sites': 15, 'volume': 20 }` | Lire depuis la table `rabais` (slugs `multi-sites`, `volume-500`) |
+| 7 | `roi-calc.ts` | 65 | `donnees.coutGestionDechets * 0.15` | Paramètre `reduction_dechets` dans `parametres_roi` |
 
-La table `soumission_options` **n'existe pas**. Aucune entrée `config` pour les options pré-configurées.
+### Sévérité MOYENNE — Valeurs par défaut qui devraient venir de config
 
-### Ce que le nouveau système requiert
+| # | Fichier | Ligne | Valeur hardcodée | Ce qui doit la remplacer |
+|---|---|---|---|---|
+| 8 | `Calculateur.tsx` | 201–203 | `tauxHoraireCuisine: 22, tauxHoraireAdmin: 35, tauxHoraireCompta: 27` | `config.taux_horaire_cuisine_defaut`, etc. |
+| 9 | `SoumissionPDF.tsx` | 182 | `"... × 3 000 $"` dans le label des frais | Calculer depuis `fraisInt / etablissements.length` ou `config.frais_integration` |
 
-1. Une nouvelle table `soumission_options` avec `id`, `soumission_id`, `nom`, `prix_description`, `ordre`
-2. Des entrées `config` pour les options pré-configurées (Thermomètres connectés, Formation)
-3. Une nouvelle section collapsible dans le formulaire (entre Section 6 Notes et les boutons d'action)
-4. Un affichage dans le récapitulatif sticky (discret, sous les totaux)
-5. Une section dans le PDF (conditionnelle)
-6. Un affichage dans `SoumissionPresentation.tsx`
-7. Un affichage dans `SoumissionDetail.tsx`
-8. La duplication doit copier les options
+### Sévérité FAIBLE — Fallbacks acceptables (documentés, non bloquants)
+
+| # | Fichier | Description | Verdict |
+|---|---|---|---|
+| 10 | `Calculateur.tsx:217` | `config.frais_integration \|\| 3000` | Acceptable — valeur en DB (`3000`), fallback = même valeur |
+| 11 | `Calculateur.tsx:218` | `config.validite_soumission_jours \|\| 30` | Acceptable — valeur en DB (`30`), fallback = même valeur |
+| 12 | `admin/Tarification.tsx:159` | `config.frais_integration \|\| 3000` (affichage admin) | Acceptable |
+| 13 | `roi-calc.ts` — tous les `getParam(..., defaut)` | Les valeurs par défaut sont des fallbacks de sécurité, les vraies valeurs viennent de DB | Acceptable |
+
+### Discordances clés (paramètres ROI)
+
+Le code `roi-calc.ts` utilise des clés comme `heures_rh` et `heures_economisees`, mais la DB a `heures_rh_an` et `heures_economisees_an`. Cela signifie que **le calcul ne trouve jamais ces paramètres en DB** et utilise toujours les valeurs codées en dur. C'est un bug silencieux.
+
+| Clé dans le code | Clé en DB | Valeur en DB |
+|---|---|---|
+| `heures_rh` | `heures_rh_an` | 72 |
+| `heures_compta_rh` | `heures_compta_rh_an` | 12 |
+| `heures_economisees` | `heures_economisees_an` | 65 |
+| `reduction_dechets` | manquante (0.15 hardcodé) | — |
 
 ---
 
-## Décision d'architecture
+## Décisions d'architecture
 
-### Stockage des options pré-configurées
+### 1. Nouvelles clés `config` à créer (INSERT)
 
-La table `config` existante (clé/valeur) stockera les suggestions comme un JSON dans une seule clé :
+```sql
+INSERT INTO config (cle, valeur, categorie, description) VALUES
+  ('sous_titre_entreprise', 'Plateforme de gestion alimentaire', 'pdf', 'Sous-titre affiché sous le nom sur le PDF'),
+  ('taux_horaire_cuisine_defaut', '22', 'roi', 'Taux horaire cuisine par défaut ($/h)'),
+  ('taux_horaire_admin_defaut', '35', 'roi', 'Taux horaire admin par défaut ($/h)'),
+  ('taux_horaire_compta_defaut', '27', 'roi', 'Taux horaire comptabilité par défaut ($/h)');
 ```
-cle: 'options_supplementaires_defaut'
-valeur: '[{"nom":"Thermomètres connectés","prix_description":"50 $ / unité / mois"},{"nom":"Banque d\'heures de formation","prix_description":"150 $ / heure"}]'
-categorie: 'options'
-```
 
-Cela permet à l'admin de modifier les suggestions depuis `AdminConfigSoumissions` sans déploiement.
+### 2. Nouveau paramètre ROI pour le module Thermomètres
 
-### Interface `OptionSupplementaire` dans `Calculateur.tsx`
+Ajouter dans `parametres_roi` la clé `reduction_dechets` (valeur `0.15`) pour le module thermomètres.
 
+### 3. Correction des clés discordantes dans `roi-calc.ts`
+
+Corriger les appels `getParam` pour qu'ils utilisent les clés exactes qui existent en DB :
+- `'heures_rh'` → `'heures_rh_an'`  
+- `'heures_compta_rh'` → `'heures_compta_rh_an'`
+- `'heures_economisees'` → `'heures_economisees_an'`
+
+### 4. Refactorer `DEFAUTS_RABAIS` dans `Calculateur.tsx`
+
+Remplacer le dictionnaire hardcodé par une dérivation depuis `tousLesRabais` :
 ```ts
-interface OptionSupplementaire {
-  id: string;        // UUID local temporaire
-  nom: string;
-  prixDescription: string;
-}
+// Au lieu de : const DEFAUTS_RABAIS = { 'multi-sites': 15, 'volume': 20 }
+// Calculé depuis les données Supabase :
+const defautsRabais = useMemo(() => {
+  const map: Record<string, number> = { 'personnalise': 0 };
+  tousLesRabais.filter(r => r.type_ui === 'dropdown').forEach(r => {
+    map[r.slug] = Number(r.pourcentage);
+  });
+  return map;
+}, [tousLesRabais]);
 ```
 
-### Position dans le formulaire
+Note : `multi-sites` → slug en DB = `multi-sites`, `volume` → slug en DB = `volume-500`. Le type dans le dropdown restera `'volume'` (invariant UI) mais le pourcentage par défaut viendra de la DB.
 
-La section « Options supplémentaires » sera insérée **après la Section 6 (Notes)** et **avant les boutons d'action**, numérotée Section 7. Elle est collapsible par défaut (fermée) via `Collapsible` de shadcn/ui — même pattern que la Section 6.
+### 5. PDF : lire `config` depuis props
+
+`SoumissionPDF` reçoit `soumission` et a accès au `config` via un nouveau prop ou via un appel à `fetchConfig` depuis `SoumissionDetail`. La solution la plus simple : passer un prop `config: Record<string, string>` au composant, que `SoumissionDetail` alimente via son propre `useQuery(['config'])`.
+
+### 6. `SoumissionPresentation.tsx` : charger la config
+
+Ajouter un `useQuery(['config'])` dans `SoumissionPresentation` pour lire `nom_entreprise` et `validite_soumission_jours`.
 
 ---
 
-## Périmètre des changements
+## Périmètre des modifications
 
-| Fichier | Nature |
+| Fichier | Changements |
 |---|---|
-| Base de données | Créer `soumission_options` + INSERT config options défaut |
-| `src/lib/supabase-queries.ts` | `sauvegarderSoumission` + `fetchSoumissionById` + `dupliquerSoumission` |
-| `src/pages/Calculateur.tsx` | État `options[]`, UI Section 7, récapitulatif, `handleSauvegarder` |
-| `src/components/pdf/SoumissionPDF.tsx` | Section conditionnelle « Options supplémentaires » |
-| `src/pages/SoumissionPresentation.tsx` | Section conditionnelle « Options supplémentaires » |
-| `src/pages/SoumissionDetail.tsx` | Card « Options supplémentaires » |
+| DB (INSERT data) | Nouvelles clés config + nouveau paramètre ROI `reduction_dechets` |
+| `src/lib/roi-calc.ts` | Corriger 3 clés discordantes + remplacer `* 0.15` par `getParam` |
+| `src/pages/Calculateur.tsx` | Remplacer `DEFAUTS_RABAIS` hardcodé par dérivation depuis `tousLesRabais` + taux horaires par défaut depuis config |
+| `src/components/pdf/SoumissionPDF.tsx` | Nouveau prop `config`, lire `nom_entreprise`, `sous_titre_entreprise`, `conditions_generales`. Corriger label frais `3 000 $` |
+| `src/pages/SoumissionDetail.tsx` | Passer `config` au composant `SoumissionPDF` |
+| `src/pages/SoumissionPresentation.tsx` | Charger config, remplacer `"Octogone 360"` et `"Valide 30 jours"` |
 
 ---
 
 ## Détail technique par fichier
 
-### 1. Migration base de données
+### Étape 1 — Données : INSERT dans `config` et `parametres_roi`
 
-**Nouvelle table `soumission_options` :**
 ```sql
-CREATE TABLE soumission_options (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  soumission_id UUID NOT NULL REFERENCES soumissions(id) ON DELETE CASCADE,
-  nom TEXT NOT NULL,
-  prix_description TEXT NOT NULL DEFAULT '',
-  ordre INTEGER DEFAULT 0
-);
-
-ALTER TABLE soumission_options ENABLE ROW LEVEL SECURITY;
-
-CREATE POLICY "Accès public soumission_options"
-  ON soumission_options FOR ALL
-  USING (true) WITH CHECK (true);
-```
-
-**Insert dans `config` pour les options pré-configurées :**
-```sql
+-- Nouvelles clés config
 INSERT INTO config (cle, valeur, categorie, description)
-VALUES (
-  'options_supplementaires_defaut',
-  '[{"nom":"Thermomètres connectés","prix_description":"50 $ / unité / mois"},{"nom":"Banque d''heures de formation","prix_description":"150 $ / heure"}]',
-  'options',
-  'Options supplémentaires pré-configurées (JSON array)'
-);
+VALUES
+  ('sous_titre_entreprise', 'Plateforme de gestion alimentaire', 'pdf', 'Sous-titre PDF'),
+  ('taux_horaire_cuisine_defaut', '22', 'roi', 'Taux horaire cuisine par défaut ($/h)'),
+  ('taux_horaire_admin_defaut', '35', 'roi', 'Taux horaire admin par défaut ($/h)'),
+  ('taux_horaire_compta_defaut', '27', 'roi', 'Taux horaire compta par défaut ($/h)');
+
+-- Nouveau paramètre ROI thermomètres (module bf4d9835-...)
+INSERT INTO parametres_roi (module_id, cle, label, valeur, ordre)
+VALUES ('bf4d9835-6560-41ac-94c5-e0b65df519f8', 'reduction_dechets', 'Réduction coût gestion déchets (%)', 0.15, 99);
 ```
 
-### 2. `src/lib/supabase-queries.ts`
+### Étape 2 — `roi-calc.ts` : 4 corrections
 
-**Type export :**
+**Correction 1** — `calculerThermometres` ligne 65 :
 ```ts
-export type SoumissionOption = Database['public']['Tables']['soumission_options']['Row'];
+// AVANT :
+const economiesDechets = donnees.coutGestionDechets * 0.15;
+// APRÈS :
+const reductionDechets = getParam(params, moduleId, 'reduction_dechets', 0.15);
+const economiesDechets = donnees.coutGestionDechets * reductionDechets;
 ```
 
-**Nouvelle fonction `fetchOptionsSoumission` :**
+**Corrections 2–4** — clés discordantes dans `calculerRH` et `calculerFacturation` :
 ```ts
-export const fetchOptionsSoumission = async (soumissionId: string): Promise<SoumissionOption[]> => {
-  const { data, error } = await supabase
-    .from('soumission_options')
-    .select('*')
-    .eq('soumission_id', soumissionId)
-    .order('ordre');
-  if (error) throw error;
-  return data || [];
-};
+// calculerFacturation ligne 126
+const heuresEconomisees = getParam(params, moduleId, 'heures_economisees_an', 65); // était 'heures_economisees'
+
+// calculerRH lignes 144–145
+const heuresRH = getParam(params, moduleId, 'heures_rh_an', 72); // était 'heures_rh'
+const heuresComptaRH = getParam(params, moduleId, 'heures_compta_rh_an', 12); // était 'heures_compta_rh'
 ```
 
-**Dans `fetchSoumissionById`** — ajouter une 5e requête parallèle :
-```ts
-const [soumissionRes, etablissementsRes, rabaisRes, roiRes, optionsRes] = await Promise.all([
-  supabase.from('soumissions').select('*').eq('id', id).single(),
-  supabase.from('soumission_etablissements').select('*, segments(*)').eq('soumission_id', id),
-  supabase.from('soumission_rabais').select('*, rabais(*)').eq('soumission_id', id),
-  supabase.from('soumission_roi').select('*').eq('soumission_id', id).maybeSingle(),
-  supabase.from('soumission_options').select('*').eq('soumission_id', id).order('ordre'),
-]);
+### Étape 3 — `Calculateur.tsx` : 3 corrections
 
-// Dans le return :
-return {
-  soumission: soumissionRes.data,
-  etablissements,
-  rabais,
-  roi: { soumission_roi: roiRes.data, modules: roiModules },
-  options: optionsRes.data || [],  // NOUVEAU
-};
+**Correction A** — Remplacer `DEFAUTS_RABAIS` statique par calcul dynamique :
+
+```ts
+// Supprimer le const DEFAUTS_RABAIS statique en haut de fichier
+// Ajouter dans le composant après tousLesRabais :
+
+// Pourcentages par défaut des rabais dropdown (depuis Supabase)
+const defautsRabaisDropdown = useMemo(() => {
+  const map: Record<string, number> = { 'personnalise': 0 };
+  tousLesRabais
+    .filter(r => r.type_ui === 'dropdown')
+    .forEach(r => { map[r.slug] = Number(r.pourcentage); });
+  // Alias : volume-500 → volume (nom interne du type UI)
+  if (map['volume-500'] !== undefined) map['volume'] = map['volume-500'];
+  return map;
+}, [tousLesRabais]);
 ```
 
-**Dans `sauvegarderSoumission`** — ajouter `options` dans les params et l'insert :
+Mettre à jour la référence dans le `Select` (ligne 597) : `DEFAUTS_RABAIS[v]` → `defautsRabaisDropdown[v]`.
+
+**Correction B** — Taux horaires par défaut depuis config :
+
 ```ts
-// Paramètre ajouté :
-options: Array<{
-  nom: string;
-  prixDescription: string;
-  ordre: number;
-}>;
-
-// Insert après les rabais :
-if (params.options.length > 0) {
-  await supabase.from('soumission_options').insert(
-    params.options.map(o => ({
-      soumission_id: soumission.id,
-      nom: o.nom,
-      prix_description: o.prixDescription,
-      ordre: o.ordre,
-    }))
-  );
-}
-```
-
-**Dans `dupliquerSoumission`** — récupérer et copier les options :
-```ts
-// Ajouter dans fetchSoumissionById ou requête directe :
-const { data: optionsOriginales } = await supabase
-  .from('soumission_options')
-  .select('*')
-  .eq('soumission_id', id)
-  .order('ordre');
-
-if (optionsOriginales && optionsOriginales.length > 0) {
-  await supabase.from('soumission_options').insert(
-    optionsOriginales.map(o => ({
-      soumission_id: nouvelle.id,
-      nom: o.nom,
-      prix_description: o.prix_description,
-      ordre: o.ordre,
-    }))
-  );
-}
-```
-
-### 3. `src/pages/Calculateur.tsx`
-
-**Nouvel état :**
-```ts
-const [options, setOptions] = useState<OptionSupplementaire[]>([]);
-```
-
-**Parsing des options pré-configurées depuis `config` :**
-```ts
-const optionsDefaut: Array<{ nom: string; prixDescription: string }> = useMemo(() => {
-  try {
-    return JSON.parse(config.options_supplementaires_defaut || '[]');
-  } catch {
-    return [
-      { nom: 'Thermomètres connectés', prixDescription: '50 $ / unité / mois' },
-      { nom: "Banque d'heures de formation", prixDescription: '150 $ / heure' },
-    ];
-  }
-}, [config.options_supplementaires_defaut]);
-```
-
-**Handlers :**
-```ts
-const ajouterOption = (suggestion?: { nom: string; prixDescription: string }) => {
-  if (options.length >= 10) return;
-  setOptions(prev => [
-    ...prev,
-    {
-      id: Date.now().toString(),
-      nom: suggestion?.nom || '',
-      prixDescription: suggestion?.prixDescription || '',
-    },
-  ]);
-};
-
-const supprimerOption = (id: string) => {
-  setOptions(prev => prev.filter(o => o.id !== id));
-};
-
-const majOption = (id: string, champ: 'nom' | 'prixDescription', valeur: string) => {
-  setOptions(prev => prev.map(o => o.id === id ? { ...o, [champ]: valeur } : o));
-};
-```
-
-**Validation dans `handleSauvegarder` :**
-```ts
-if (options.some(o => !o.nom.trim())) {
-  toast({ title: 'Erreur', description: 'Le nom est requis pour chaque option.', variant: 'destructive' });
-  return;
-}
-```
-
-**Passage à `sauvegarderSoumission` :**
-```ts
-await sauvegarderSoumission({
-  // ...existant...
-  options: options.map((o, i) => ({
-    nom: o.nom.trim(),
-    prixDescription: o.prixDescription.trim() || 'Sur demande',
-    ordre: i,
-  })),
+// Dans le useState de donneesROI, remplacer les valeurs hardcodées par les valeurs de config :
+const [donneesROI, setDonneesROI] = useState<DonneesROI>({
+  nbEtablissements: 1,
+  budgetAlimentaire: 0,
+  coutsApprovisionnement: 0,
+  nbEmployesCuisine: 0,
+  nbResponsablesCommandes: 0,
+  nbEmployesTotal: 0,
+  tauxHoraireCuisine: Number(config.taux_horaire_cuisine_defaut || 22),
+  tauxHoraireAdmin: Number(config.taux_horaire_admin_defaut || 35),
+  tauxHoraireCompta: Number(config.taux_horaire_compta_defaut || 27),
+  coutGestionDechets: 0,
 });
 ```
 
-**UI — Section 7 (collapsible, entre Section 6 et les boutons) :**
+Problème : `useState` ne se réinitialise pas quand `config` change. Solution : ajouter un `useEffect` qui met à jour les taux horaires une fois la config chargée :
 
-```text
-<Card>
-  <Collapsible defaultOpen={false}>
-    <CollapsibleTrigger asChild>
-      <CardHeader className="cursor-pointer select-none pb-3">
-        <div className="flex items-center justify-between">
-          <CardTitle className="text-base">7. Options supplémentaires (au besoin)</CardTitle>
-          <div className="flex items-center gap-1 text-muted-foreground">
-            {options.length > 0 && (
-              <span className="text-xs px-2 py-0.5 rounded-full" ...>
-                {options.length} option{options.length > 1 ? 's' : ''}
-              </span>
-            )}
-            <ChevronRight className="h-4 w-4 transition-transform [[data-state=open]>&]:rotate-90" />
-          </div>
-        </div>
-      </CardHeader>
-    </CollapsibleTrigger>
-
-    <CollapsibleContent>
-      <CardContent className="space-y-3 pt-0">
-        {/* Suggestions rapides */}
-        <div className="flex flex-wrap gap-2">
-          {optionsDefaut.map(opt => (
-            <Button
-              key={opt.nom}
-              variant="outline"
-              size="sm"
-              className="text-xs h-7 gap-1"
-              onClick={() => ajouterOption(opt)}
-              disabled={options.length >= 10}>
-              <Plus className="h-3 w-3" />{opt.nom}
-            </Button>
-          ))}
-          <Button
-            variant="outline"
-            size="sm"
-            className="text-xs h-7 gap-1"
-            onClick={() => ajouterOption()}
-            disabled={options.length >= 10}>
-            <Plus className="h-3 w-3" />Option personnalisée
-          </Button>
-        </div>
-
-        {/* Maximum atteint */}
-        {options.length >= 10 && (
-          <p className="text-xs text-muted-foreground">Maximum 10 options atteint.</p>
-        )}
-
-        {/* Liste des options ajoutées */}
-        {options.map((opt, idx) => (
-          <div key={opt.id} className="flex gap-2 items-start p-3 rounded-lg border">
-            <div className="flex-1 space-y-2">
-              <Input
-                placeholder="Nom de l'option *"
-                value={opt.nom}
-                onChange={e => majOption(opt.id, 'nom', e.target.value)}
-                className="h-9 text-sm"
-              />
-              <Input
-                placeholder="Prix / description (ex. : 50 $ / unité / mois)"
-                value={opt.prixDescription}
-                onChange={e => majOption(opt.id, 'prixDescription', e.target.value)}
-                className="h-9 text-sm"
-              />
-            </div>
-            <Button
-              size="icon"
-              variant="ghost"
-              className="h-9 w-9 text-destructive mt-0"
-              onClick={() => supprimerOption(opt.id)}>
-              <Trash2 className="h-4 w-4" />
-            </Button>
-          </div>
-        ))}
-      </CardContent>
-    </CollapsibleContent>
-  </Collapsible>
-</Card>
+```ts
+useEffect(() => {
+  if (!config.taux_horaire_cuisine_defaut) return; // config pas encore chargée
+  setDonneesROI(prev => ({
+    ...prev,
+    tauxHoraireCuisine: Number(config.taux_horaire_cuisine_defaut),
+    tauxHoraireAdmin: Number(config.taux_horaire_admin_defaut || prev.tauxHoraireAdmin),
+    tauxHoraireCompta: Number(config.taux_horaire_compta_defaut || prev.tauxHoraireCompta),
+  }));
+}, [config.taux_horaire_cuisine_defaut, config.taux_horaire_admin_defaut, config.taux_horaire_compta_defaut]);
 ```
 
-**Récapitulatif sticky — Encadré discret (sous le coût total) :**
+### Étape 4 — `SoumissionPDF.tsx` : nouveau prop `config` + 4 remplacements
 
-```text
-{options.length > 0 && (
-  <div className="border-t pt-3">
-    <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-2">
-      Options disponibles
-    </p>
-    <div className="space-y-1">
-      {options.map(opt => (
-        <div key={opt.id} className="flex justify-between text-xs">
-          <span className="text-muted-foreground truncate max-w-[140px]">{opt.nom}</span>
-          <span className="text-muted-foreground text-right ml-2">
-            {opt.prixDescription || 'Sur demande'}
-          </span>
-        </div>
-      ))}
-    </div>
-  </div>
-)}
-```
+Ajouter `config: Record<string, string>` dans l'interface `SoumissionPDFProps` :
 
-**Dépendances useEffect Ctrl+S :** ajouter `options` au tableau.
-
-### 4. `src/components/pdf/SoumissionPDF.tsx`
-
-Recevoir `options` comme prop :
 ```ts
 interface SoumissionPDFProps {
-  // ...existant...
-  options: SoumissionOption[];
+  soumission: Soumission;
+  etablissements: (SoumissionEtablissement & { segment?: any })[];
+  rabais: Rabais[];
+  roi: SoumissionRoi | null;
+  roiModules: SoumissionRoiModule[];
+  options?: SoumissionOption[];
+  config?: Record<string, string>;  // NOUVEAU
 }
 ```
 
-Section conditionnelle **après les Notes importantes et avant les Conditions** :
+Dans le composant, dériver les valeurs :
 ```ts
-{options.length > 0 && (
-  <div className="pdf-no-break" style={{ marginBottom: 24 }}>
-    <div style={{ fontSize: '11pt', fontWeight: 700, marginBottom: 10, color: '#1e3a5f' }}>
-      Options supplémentaires (au besoin)
-    </div>
-    <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '10pt' }}>
-      <thead>
-        <tr style={{ background: '#f0f4f8' }}>
-          <th style={{ padding: '8px 12px', textAlign: 'left', fontWeight: 600, color: '#6b7280' }}>Option</th>
-          <th style={{ padding: '8px 12px', textAlign: 'right', fontWeight: 600, color: '#6b7280' }}>Prix</th>
-        </tr>
-      </thead>
-      <tbody>
-        {options.map((opt, i) => (
-          <tr key={opt.id} style={{ borderBottom: '1px solid #e5e7eb', background: i % 2 === 0 ? '#f9fafb' : 'white' }}>
-            <td style={{ padding: '8px 12px' }}>{opt.nom}</td>
-            <td style={{ padding: '8px 12px', textAlign: 'right', color: '#6b7280' }}>
-              {opt.prix_description || 'Sur demande'}
-            </td>
-          </tr>
-        ))}
-      </tbody>
-    </table>
-    <p style={{ fontSize: '8.5pt', color: '#9ca3af', marginTop: 8, fontStyle: 'italic' }}>
-      Ces options sont informatives et ne sont pas incluses dans le total de l'abonnement.
-    </p>
-  </div>
-)}
+const nomEntreprise = config?.nom_entreprise || 'Octogone 360';
+const sousTitreEntreprise = config?.sous_titre_entreprise || 'Plateforme de gestion alimentaire';
+const conditionsGenerales = config?.conditions_generales || 
+  "Cette soumission est valide pour une période de 30 jours à compter de la date d'émission. Les prix sont exprimés en dollars canadiens et sont sujets à change sans préavis après la date d'expiration. Les frais d'intégration sont payables à la signature du contrat. Le prix mensuel s'applique à compter de la mise en service de chaque établissement.";
+const fraisParEtabAffichage = config?.frais_integration ? Number(config.frais_integration) : null;
 ```
 
-**Dans les pages qui utilisent `SoumissionPDF`** (`SoumissionDetail.tsx`) : passer `options={options}`.
+Remplacements dans le JSX :
+- Ligne 68 : `Octogone 360` → `{nomEntreprise}`
+- Ligne 69 : texte sous-titre → `{sousTitreEntreprise}`
+- Ligne 182 : `Frais d'intégration ({etablissements.length} étab. × 3 000 $)` → calculer le prix unitaire : `fraisParEtabAffichage ? \`... × ${formatMontant(fraisParEtabAffichage)}\`` ou simplement afficher `Frais d'intégration` si pas de config
+- Ligne 303–306 : texte hardcodé → `{conditionsGenerales}`
+- Lignes 312, 314 : `Octogone 360` → `{nomEntreprise}`, `Confidentiel` → peut rester
 
-### 5. `src/pages/SoumissionPresentation.tsx`
+### Étape 5 — `SoumissionDetail.tsx` : passer `config` au PDF
 
-La requête via `fetchSoumissionById` retournera maintenant `options`. Destructurer :
-```ts
-const { soumission, etablissements, rabais, roi, options } = data;
-```
-
-Section conditionnelle **après les Rabais et avant le ROI** :
 ```tsx
-{options && options.length > 0 && (
-  <div className="p-6 rounded-2xl" style={{ background: 'hsl(var(--sidebar-accent))' }}>
-    <h3 className="font-semibold mb-4" style={{ color: 'hsl(var(--sidebar-foreground))' }}>
-      Options supplémentaires (au besoin)
-    </h3>
-    <div className="rounded-xl overflow-hidden border" style={{ borderColor: 'hsl(var(--sidebar-border))' }}>
-      <table className="w-full text-sm">
-        <thead>
-          <tr style={{ background: 'hsl(var(--sidebar-accent) / 0.5)' }}>
-            <th className="text-left px-4 py-3 text-xs font-semibold uppercase tracking-wider"
-              style={{ color: 'hsl(var(--sidebar-foreground) / 0.6)' }}>Option</th>
-            <th className="text-right px-4 py-3 text-xs font-semibold uppercase tracking-wider"
-              style={{ color: 'hsl(var(--sidebar-foreground) / 0.6)' }}>Prix</th>
-          </tr>
-        </thead>
-        <tbody>
-          {options.map((opt: any) => (
-            <tr key={opt.id} className="border-t" style={{ borderColor: 'hsl(var(--sidebar-border))' }}>
-              <td className="px-4 py-3 font-medium" style={{ color: 'hsl(var(--sidebar-foreground))' }}>
-                {opt.nom}
-              </td>
-              <td className="px-4 py-3 text-right" style={{ color: 'hsl(var(--sidebar-foreground) / 0.7)' }}>
-                {opt.prix_description || 'Sur demande'}
-              </td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-    </div>
-    <p className="text-xs mt-3" style={{ color: 'hsl(var(--sidebar-foreground) / 0.4)', fontStyle: 'italic' }}>
-      Ces options sont informatives et n'affectent pas les totaux ci-dessus.
-    </p>
-  </div>
-)}
+// Ajouter le useQuery config
+const { data: config = {} } = useQuery({ queryKey: ['config'], queryFn: fetchConfig });
+
+// Dans le JSX :
+<SoumissionPDF
+  soumission={soumission}
+  etablissements={etablissements}
+  rabais={rabais}
+  roi={roi.soumission_roi}
+  roiModules={roi.modules}
+  options={options || []}
+  config={config}   // NOUVEAU
+/>
 ```
 
-### 6. `src/pages/SoumissionDetail.tsx`
+### Étape 6 — `SoumissionPresentation.tsx` : charger config
 
-Le composant appelle `fetchSoumissionById(id)` — il recevra automatiquement `options`. Ajouter une `Card` après la card Rabais :
 ```tsx
-{options && options.length > 0 && (
-  <Card>
-    <CardHeader className="pb-3">
-      <CardTitle className="text-base">Options supplémentaires</CardTitle>
-    </CardHeader>
-    <CardContent>
-      <div className="space-y-2">
-        {options.map((opt: any, i: number) => (
-          <div key={opt.id} className="flex justify-between text-sm py-2 border-b last:border-0">
-            <span className="font-medium">{opt.nom}</span>
-            <span className="text-muted-foreground">{opt.prix_description || 'Sur demande'}</span>
-          </div>
-        ))}
-      </div>
-    </CardContent>
-  </Card>
-)}
+// Ajouter import fetchConfig
+import { fetchSoumissionById, fetchConfig } from '@/lib/supabase-queries';
+
+// Ajouter useQuery config
+const { data: config = {} } = useQuery({ queryKey: ['config'], queryFn: fetchConfig });
+
+// Remplacements JSX :
+// Ligne 44 : "Octogone 360" → {config.nom_entreprise || 'Octogone 360'}
+// Ligne 243 : footer hardcodé → construire depuis config
 ```
+
+Footer de la présentation (ligne 243) :
+```tsx
+<footer ...>
+  {config.nom_entreprise || 'Octogone 360'} — {soumission.numero} — Valide {config.validite_soumission_jours || 30} jours
+</footer>
+```
+
+---
+
+## Ce qui reste acceptable dans le code (ne pas changer)
+
+- `Login.tsx:143` — `"Octogone 360"` sur la page de connexion → texte UI invariant, non configuré
+- `AppLayout.tsx:159` — `"Octogone 360"` dans la navigation → texte UI invariant
+- `roi-calc.ts` — tous les `getParam(...)` avec valeur de fallback → correct, les vraies valeurs viennent de DB
+- `Calculateur.tsx:217–218` — `|| 3000` et `|| 30` → fallbacks identiques aux valeurs en DB, acceptables
+- Labels de formulaire (« Nom du client », « Nombre d'unités ») → UI pur, non configuré
+- Routes, noms de colonnes Supabase → technique pur
 
 ---
 
 ## Ordre d'exécution
 
 ```text
-Étape 1 → Migration DB :
-           CREATE TABLE soumission_options (...)
-           ALTER TABLE ... ENABLE ROW LEVEL SECURITY
-           CREATE POLICY ...
-           INSERT INTO config (options pré-configurées)
+Étape 1 → INSERT data (config + parametres_roi)
+          — sous_titre_entreprise
+          — taux_horaire_cuisine/admin/compta_defaut
+          — reduction_dechets dans parametres_roi
 
-Étape 2 → supabase-queries.ts :
-           a. Export type SoumissionOption
-           b. fetchSoumissionById → 5e requête parallèle options + retour
-           c. sauvegarderSoumission → param options + insert
-           d. dupliquerSoumission → copie des options
+Étape 2 → roi-calc.ts
+          — Ligne 65 : 0.15 → getParam(..., 'reduction_dechets', 0.15)
+          — Ligne 126 : 'heures_economisees' → 'heures_economisees_an'
+          — Ligne 144 : 'heures_rh' → 'heures_rh_an'
+          — Ligne 145 : 'heures_compta_rh' → 'heures_compta_rh_an'
 
-Étape 3 → Calculateur.tsx :
-           a. Type OptionSupplementaire
-           b. État options[]
-           c. Parsing optionsDefaut depuis config
-           d. Handlers : ajouterOption, supprimerOption, majOption
-           e. Validation dans handleSauvegarder
-           f. Passage options à sauvegarderSoumission
-           g. Section 7 (collapsible) dans le formulaire
-           h. Encadré « Options disponibles » dans le récapitulatif sticky
-           i. Ajout de options aux dépendances Ctrl+S
+Étape 3 → Calculateur.tsx
+          — Supprimer DEFAUTS_RABAIS statique
+          — Ajouter defautsRabaisDropdown calculé depuis tousLesRabais
+          — Initialiser taux horaires depuis config (useEffect)
 
-Étape 4 → SoumissionPDF.tsx :
-           a. Prop options: SoumissionOption[]
-           b. Section conditionnelle avant les conditions
+Étape 4 → SoumissionPDF.tsx
+          — Nouveau prop config
+          — Remplacer nom_entreprise, sous_titre, conditions, frais label
 
-Étape 5 → SoumissionDetail.tsx :
-           a. Passer options={options || []} à SoumissionPDF
-           b. Card « Options supplémentaires »
+Étape 5 → SoumissionDetail.tsx
+          — useQuery config + passer au PDF
 
-Étape 6 → SoumissionPresentation.tsx :
-           a. Destructurer options depuis data
-           b. Section conditionnelle après les rabais
+Étape 6 → SoumissionPresentation.tsx
+          — useQuery config + remplacer "Octogone 360" et "Valide 30 jours"
 ```
 
 ---
 
-## Edge cases couverts
+## Tests de validation post-implémentation
 
-- **Aucune option** : la section n'apparaît nulle part (PDF, présentation, récap, détail)
-- **Nom vide → sauvegarde bloquée** : validation dans `handleSauvegarder`
-- **Prix vide → "Sur demande"** : fallback dans l'affichage et à la sauvegarde
-- **Maximum 10 options** : boutons "+ Ajouter" désactivés + message
-- **Duplication** : `dupliquerSoumission` copie les lignes de `soumission_options`
-- **Calcul non affecté** : les options ne participent à aucun calcul de total
-- **Config admin** : les suggestions pré-configurées viennent de la table `config` (modifiable via AdminConfigSoumissions)
-- **Soumissions existantes** : `ON DELETE CASCADE` sur `soumission_id` → pas d'orphelins si la soumission est supprimée
+1. Aller dans Admin → Config soumissions → changer le nom de l'entreprise → PDF doit afficher le nouveau nom
+2. Aller dans Admin → Config soumissions → changer les conditions générales → PDF doit afficher le nouveau texte
+3. Aller dans Admin → Tarification → changer les frais d'intégration → le calcul et le PDF changent
+4. Aller dans Admin → Rabais → changer le % multi-sites → le dropdown du calculateur pré-remplit la nouvelle valeur
+5. Aller dans Admin → ROI → changer un paramètre (ex. : `heures_rh_an`) → le calcul ROI change
+6. Présentation d'une soumission → footer affiche le vrai nom d'entreprise et la vraie durée de validité
