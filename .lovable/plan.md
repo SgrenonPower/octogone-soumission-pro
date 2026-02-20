@@ -1,31 +1,61 @@
 
-# Soumissions multi-segments
+# Section « Options supplémentaires » (add-ons)
 
 ## Analyse de l'état actuel
 
-### Problème central
+### Architecture existante
 
-Le calculateur gère actuellement `segmentId` comme un état **global** : un seul segment s'applique à tous les établissements. La fonction `calculerPrixEtablissement` reçoit ce segment unique et les paliers de ce segment.
+Le calculateur actuel (994 lignes) est organisé en sections numérotées :
+- Section 1 : Segment de clientèle (dropdown global)
+- Section 2 : Informations client
+- Section 3 : Établissements
+- Section 4 : Rabais (dropdown + toggles + frais offerts)
+- Section 5 : Calculateur ROI (collapsible)
+- Section 6 : Notes et conditions spéciales (collapsible)
 
-L'interface `Etablissement` est :
-```ts
-{ id: string; nom: string; nombreUnites: number; estPilote: boolean }
+La sauvegarde passe par `sauvegarderSoumission()` dans `supabase-queries.ts` qui insère dans `soumissions`, `soumission_etablissements`, `soumission_rabais`, et optionnellement `soumission_roi`.
+
+La table `soumission_options` **n'existe pas**. Aucune entrée `config` pour les options pré-configurées.
+
+### Ce que le nouveau système requiert
+
+1. Une nouvelle table `soumission_options` avec `id`, `soumission_id`, `nom`, `prix_description`, `ordre`
+2. Des entrées `config` pour les options pré-configurées (Thermomètres connectés, Formation)
+3. Une nouvelle section collapsible dans le formulaire (entre Section 6 Notes et les boutons d'action)
+4. Un affichage dans le récapitulatif sticky (discret, sous les totaux)
+5. Une section dans le PDF (conditionnelle)
+6. Un affichage dans `SoumissionPresentation.tsx`
+7. Un affichage dans `SoumissionDetail.tsx`
+8. La duplication doit copier les options
+
+---
+
+## Décision d'architecture
+
+### Stockage des options pré-configurées
+
+La table `config` existante (clé/valeur) stockera les suggestions comme un JSON dans une seule clé :
+```
+cle: 'options_supplementaires_defaut'
+valeur: '[{"nom":"Thermomètres connectés","prix_description":"50 $ / unité / mois"},{"nom":"Banque d\'heures de formation","prix_description":"150 $ / heure"}]'
+categorie: 'options'
 ```
 
-Et `handleSauvegarder` envoie `segmentId` identique pour tous les établissements dans `soumission_etablissements`.
+Cela permet à l'admin de modifier les suggestions depuis `AdminConfigSoumissions` sans déploiement.
 
-### Solution : Lignes de tarification + Nombre d'établissements séparé
+### Interface `OptionSupplementaire` dans `Calculateur.tsx`
 
-Plutôt que de lier le nombre de lignes de tarification au nombre d'établissements physiques (pour les frais d'intégration), on sépare les deux concepts :
+```ts
+interface OptionSupplementaire {
+  id: string;        // UUID local temporaire
+  nom: string;
+  prixDescription: string;
+}
+```
 
-- **Lignes de tarification** (`LigneTarification`) : chaque ligne a son propre segment, quantité et prix calculé
-- **Nombre d'établissements** : champ numérique séparé, utilisé uniquement pour le calcul des frais d'intégration
+### Position dans le formulaire
 
-La table `soumission_etablissements` peut déjà stocker N lignes par soumission avec chacune son propre `segment_id` — aucun changement structurel n'est requis ici.
-
-### Migration DB requise
-
-Une seule migration : ajouter `nombre_etablissements INTEGER DEFAULT 1` à la table `soumissions`, pour stocker le compte physique d'établissements (pour les frais d'intégration) indépendamment du nombre de lignes.
+La section « Options supplémentaires » sera insérée **après la Section 6 (Notes)** et **avant les boutons d'action**, numérotée Section 7. Elle est collapsible par défaut (fermée) via `Collapsible` de shadcn/ui — même pattern que la Section 6.
 
 ---
 
@@ -33,12 +63,12 @@ Une seule migration : ajouter `nombre_etablissements INTEGER DEFAULT 1` à la ta
 
 | Fichier | Nature |
 |---|---|
-| Base de données | `nombre_etablissements INTEGER DEFAULT 1` sur `soumissions` |
-| `src/pages/Calculateur.tsx` | Remplacer `segmentId` global par `LigneTarification[]`, ajouter champ `nombreEtablissements`, calcul multi-segments, UI |
-| `src/lib/supabase-queries.ts` | `sauvegarderSoumission` + `dupliquerSoumission` + `fetchSoumissionById` |
-| `src/components/pdf/SoumissionPDF.tsx` | Nouveau tableau multi-segments |
-| `src/pages/SoumissionPresentation.tsx` | Tableau multi-segments |
-| `src/pages/SoumissionDetail.tsx` | Afficher le segment de chaque ligne dans le tableau |
+| Base de données | Créer `soumission_options` + INSERT config options défaut |
+| `src/lib/supabase-queries.ts` | `sauvegarderSoumission` + `fetchSoumissionById` + `dupliquerSoumission` |
+| `src/pages/Calculateur.tsx` | État `options[]`, UI Section 7, récapitulatif, `handleSauvegarder` |
+| `src/components/pdf/SoumissionPDF.tsx` | Section conditionnelle « Options supplémentaires » |
+| `src/pages/SoumissionPresentation.tsx` | Section conditionnelle « Options supplémentaires » |
+| `src/pages/SoumissionDetail.tsx` | Card « Options supplémentaires » |
 
 ---
 
@@ -46,250 +76,399 @@ Une seule migration : ajouter `nombre_etablissements INTEGER DEFAULT 1` à la ta
 
 ### 1. Migration base de données
 
+**Nouvelle table `soumission_options` :**
 ```sql
-ALTER TABLE soumissions
-  ADD COLUMN nombre_etablissements INTEGER DEFAULT 1;
+CREATE TABLE soumission_options (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  soumission_id UUID NOT NULL REFERENCES soumissions(id) ON DELETE CASCADE,
+  nom TEXT NOT NULL,
+  prix_description TEXT NOT NULL DEFAULT '',
+  ordre INTEGER DEFAULT 0
+);
+
+ALTER TABLE soumission_options ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY "Accès public soumission_options"
+  ON soumission_options FOR ALL
+  USING (true) WITH CHECK (true);
 ```
 
-Cette colonne stocke le nombre de **sites physiques** (pour les frais d'intégration = `nombre_etablissements × fraisParEtab`), indépendant du nombre de lignes de tarification.
-
-### 2. Nouveau type `LigneTarification` dans `Calculateur.tsx`
-
-```ts
-interface LigneTarification {
-  id: string;
-  segmentId: string;
-  nombreUnites: number;
-  estPilote: boolean;
-  // prixUnitaire modifiable (override du prix segment)
-  prixUnitaireOverride: number | null; // null = utiliser le prix du segment
-}
+**Insert dans `config` pour les options pré-configurées :**
+```sql
+INSERT INTO config (cle, valeur, categorie, description)
+VALUES (
+  'options_supplementaires_defaut',
+  '[{"nom":"Thermomètres connectés","prix_description":"50 $ / unité / mois"},{"nom":"Banque d''heures de formation","prix_description":"150 $ / heure"}]',
+  'options',
+  'Options supplémentaires pré-configurées (JSON array)'
+);
 ```
 
-**États remplacés/ajoutés :**
+### 2. `src/lib/supabase-queries.ts`
+
+**Type export :**
 ```ts
-// Remplace : const [segmentId, setSegmentId] = useState<string>('');
-// Remplace : const [etablissements, setEtablissements] = useState<Etablissement[]>([...])
-const [lignes, setLignes] = useState<LigneTarification[]>([
-  { id: '1', segmentId: '', nombreUnites: 0, estPilote: false, prixUnitaireOverride: null }
-]);
-const [nombreEtablissements, setNombreEtablissements] = useState(1);
+export type SoumissionOption = Database['public']['Tables']['soumission_options']['Row'];
 ```
 
-### 3. Calcul par ligne dans `Calculateur.tsx`
-
-Remplacer la fonction `calculerPrixEtablissement` (qui prenait un seul `segment`) par une version qui recherche dynamiquement le segment :
-
+**Nouvelle fonction `fetchOptionsSoumission` :**
 ```ts
-const calculerPrixLigne = (
-  ligne: LigneTarification,
-  tousSegments: Segment[],
-  tousLesPaliers: Palier[],
-  tousLesRabais: Rabais[],
-  rabaisState: RabaisState,
-  rabaisDropdown: RabaisDropdownState,
-): { prixBrut: number; prixFinal: number; segment: Segment | null } => {
-  const segment = tousSegments.find(s => s.id === ligne.segmentId) || null;
-  if (!segment) return { prixBrut: 0, prixFinal: 0, segment: null };
-
-  const paliersSegment = tousLesPaliers.filter(p => p.segment_id === segment.id);
-  let prixBase: number;
-
-  if (segment.type_tarification === 'paliers') {
-    const palier = paliersSegment.find(p =>
-      ligne.nombreUnites >= p.capacite_min &&
-      (p.capacite_max === null || ligne.nombreUnites <= p.capacite_max)
-    );
-    prixBase = palier ? Number(palier.tarif_mensuel) : 0;
-  } else {
-    const prixUnitaire = ligne.prixUnitaireOverride ?? Number(segment.prix_unitaire || 0);
-    const prixBrutCalc = ligne.nombreUnites * prixUnitaire;
-    prixBase = Math.max(prixBrutCalc, Number(segment.minimum_mensuel || 0));
-  }
-
-  const prixBrut = prixBase;
-  let prixFinal = prixBase;
-
-  // Couche 1 : rabais dropdown
-  if (rabaisDropdown.type !== 'aucun' && rabaisDropdown.pourcentage > 0) {
-    prixFinal = prixFinal * (1 - rabaisDropdown.pourcentage / 100);
-  }
-  // Couche 2 : engagement
-  if (rabaisState.engagement) {
-    const r = tousLesRabais.find(r => r.slug === 'engagement-annuel');
-    if (r) prixFinal = prixFinal * (1 - Number(r.pourcentage) / 100);
-  }
-  // Couche 3 : pilote
-  if (rabaisState.pilote && ligne.estPilote) {
-    const r = tousLesRabais.find(r => r.slug === 'projet-pilote');
-    if (r) prixFinal = prixFinal * (1 - Number(r.pourcentage) / 100);
-  }
-
-  return {
-    prixBrut: Math.round(prixBrut * 100) / 100,
-    prixFinal: Math.round(prixFinal * 100) / 100,
-    segment,
-  };
+export const fetchOptionsSoumission = async (soumissionId: string): Promise<SoumissionOption[]> => {
+  const { data, error } = await supabase
+    .from('soumission_options')
+    .select('*')
+    .eq('soumission_id', soumissionId)
+    .order('ordre');
+  if (error) throw error;
+  return data || [];
 };
 ```
 
-**Calcul des totaux :**
+**Dans `fetchSoumissionById`** — ajouter une 5e requête parallèle :
 ```ts
-const calculs = lignes.map(ligne => ({
-  ligne,
-  ...calculerPrixLigne(ligne, segments, tousLesPaliers, tousLesRabais, rabaisState, rabaisDropdown),
-}));
+const [soumissionRes, etablissementsRes, rabaisRes, roiRes, optionsRes] = await Promise.all([
+  supabase.from('soumissions').select('*').eq('id', id).single(),
+  supabase.from('soumission_etablissements').select('*, segments(*)').eq('soumission_id', id),
+  supabase.from('soumission_rabais').select('*, rabais(*)').eq('soumission_id', id),
+  supabase.from('soumission_roi').select('*').eq('soumission_id', id).maybeSingle(),
+  supabase.from('soumission_options').select('*').eq('soumission_id', id).order('ordre'),
+]);
 
-const sousTotalMensuel = calculs.reduce((acc, c) => acc + c.prixBrut, 0);
-const totalMensuel = calculs.reduce((acc, c) => acc + c.prixFinal, 0);
-const totalAnnuel = totalMensuel * 12;
-const fraisIntegration = nombreEtablissements * fraisParEtab; // SÉPARÉ des lignes
-const fraisIntegrationEffectifs = fraisOfferts ? 0 : fraisIntegration;
-const coutTotalAn1 = totalAnnuel + fraisIntegrationEffectifs;
+// Dans le return :
+return {
+  soumission: soumissionRes.data,
+  etablissements,
+  rabais,
+  roi: { soumission_roi: roiRes.data, modules: roiModules },
+  options: optionsRes.data || [],  // NOUVEAU
+};
 ```
 
-### 4. Nouvelle UI — Section 1 : Segment global supprimé
-
-La section 1 « Segment de clientèle » (dropdown global) est **supprimée**. Le segment est maintenant choisi par ligne.
-
-### 5. Nouvelle UI — Section 2 : Informations client + Nombre d'établissements
-
-```text
-Section 2 — Informations client
-  - Nom du client *
-  - Nombre d'établissements (pour les frais d'intégration) [Input numérique, min=1]
-    → label explicatif : "Utilisé pour le calcul des frais d'intégration uniquement"
-```
-
-### 6. Nouvelle UI — Section 3 (remplace Établissements) : Lignes de tarification
-
-```text
-Section 3 — Lignes de tarification
-  [Pour chaque ligne :]
-  ┌─────────────────────────────────────────────────────────────┐
-  │ Ligne 1                                          [✕ Suppr.] │
-  │ Segment : [Select dropdown]                                 │
-  │ Quantité : [Input num] × [prix unitaire segment]$ = [total] │
-  │ Si pilote activé : [Switch] Ligne pilote                    │
-  └─────────────────────────────────────────────────────────────┘
-  [+ Ajouter une ligne de tarification]    (max 10)
-```
-
-**Logique du Select segment par ligne :**
-- Affiche tous les segments actifs
-- Quand le segment change → `prixUnitaireOverride` est remis à `null` (utilise le prix par défaut du segment)
-- Le prix unitaire est affiché (non modifiable dans un premier temps — rester simple)
-
-**Bouton "+ Ajouter une ligne de tarification" :**
-- `variant="outline"`, icône `Plus`
-- Désactivé si 10 lignes atteintes, avec message d'info affiché
-
-**Validation à la sauvegarde :**
+**Dans `sauvegarderSoumission`** — ajouter `options` dans les params et l'insert :
 ```ts
-if (lignes.some(l => !l.segmentId)) → erreur "Choisissez un segment pour chaque ligne"
-if (lignes.some(l => l.nombreUnites < 1)) → erreur "La quantité doit être d'au moins 1"
-if (lignes.length > 10) → erreur "Maximum 10 lignes"
+// Paramètre ajouté :
+options: Array<{
+  nom: string;
+  prixDescription: string;
+  ordre: number;
+}>;
+
+// Insert après les rabais :
+if (params.options.length > 0) {
+  await supabase.from('soumission_options').insert(
+    params.options.map(o => ({
+      soumission_id: soumission.id,
+      nom: o.nom,
+      prix_description: o.prixDescription,
+      ordre: o.ordre,
+    }))
+  );
+}
 ```
 
-### 7. Récapitulatif sticky — Détail par ligne
-
-Remplacer la section « Établissements » du panneau récap par une section « Abonnement mensuel » :
-
-```text
-ABONNEMENT MENSUEL
-  Portes autonomes — 345 unités    1 725,00 $
-  Lits catég. 3-4 — 28 lits         140,00 $
-  ──────────────────────────────────────────
-  Sous-total brut               1 865,00 $
-
-  Rabais volume (20 %)           −373,00 $
-  ──────────────────────────────────────────
-  Total mensuel                 1 492,00 $
-  Total annuel                 17 904,00 $
-  
-FRAIS D'INTÉGRATION
-  3 établissements × 3 000 $    9 000,00 $
-  ──────────────────────────────────────────
-  Coût total 1re année         26 904,00 $
-```
-
-### 8. `handleSauvegarder` — Adaptations
-
+**Dans `dupliquerSoumission`** — récupérer et copier les options :
 ```ts
-// Validation
-if (!nomClient.trim()) → erreur
-if (lignes.some(l => !l.segmentId)) → erreur
-if (lignes.some(l => l.nombreUnites < 1)) → erreur
+// Ajouter dans fetchSoumissionById ou requête directe :
+const { data: optionsOriginales } = await supabase
+  .from('soumission_options')
+  .select('*')
+  .eq('soumission_id', id)
+  .order('ordre');
 
-// Passage à sauvegarderSoumission
+if (optionsOriginales && optionsOriginales.length > 0) {
+  await supabase.from('soumission_options').insert(
+    optionsOriginales.map(o => ({
+      soumission_id: nouvelle.id,
+      nom: o.nom,
+      prix_description: o.prix_description,
+      ordre: o.ordre,
+    }))
+  );
+}
+```
+
+### 3. `src/pages/Calculateur.tsx`
+
+**Nouvel état :**
+```ts
+const [options, setOptions] = useState<OptionSupplementaire[]>([]);
+```
+
+**Parsing des options pré-configurées depuis `config` :**
+```ts
+const optionsDefaut: Array<{ nom: string; prixDescription: string }> = useMemo(() => {
+  try {
+    return JSON.parse(config.options_supplementaires_defaut || '[]');
+  } catch {
+    return [
+      { nom: 'Thermomètres connectés', prixDescription: '50 $ / unité / mois' },
+      { nom: "Banque d'heures de formation", prixDescription: '150 $ / heure' },
+    ];
+  }
+}, [config.options_supplementaires_defaut]);
+```
+
+**Handlers :**
+```ts
+const ajouterOption = (suggestion?: { nom: string; prixDescription: string }) => {
+  if (options.length >= 10) return;
+  setOptions(prev => [
+    ...prev,
+    {
+      id: Date.now().toString(),
+      nom: suggestion?.nom || '',
+      prixDescription: suggestion?.prixDescription || '',
+    },
+  ]);
+};
+
+const supprimerOption = (id: string) => {
+  setOptions(prev => prev.filter(o => o.id !== id));
+};
+
+const majOption = (id: string, champ: 'nom' | 'prixDescription', valeur: string) => {
+  setOptions(prev => prev.map(o => o.id === id ? { ...o, [champ]: valeur } : o));
+};
+```
+
+**Validation dans `handleSauvegarder` :**
+```ts
+if (options.some(o => !o.nom.trim())) {
+  toast({ title: 'Erreur', description: 'Le nom est requis pour chaque option.', variant: 'destructive' });
+  return;
+}
+```
+
+**Passage à `sauvegarderSoumission` :**
+```ts
 await sauvegarderSoumission({
-  // ...
-  nombreEtablissements, // NOUVEAU
-  etablissements: calculs.map(c => ({
-    segmentId: c.ligne.segmentId,  // Par ligne (plus global)
-    nomEtablissement: `${c.segment?.nom || 'Ligne'} — ${c.ligne.nombreUnites} unités`,
-    nombreUnites: c.ligne.nombreUnites,
-    estPilote: c.ligne.estPilote,
-    prixBrut: c.prixBrut,
-    prixFinal: c.prixFinal,
+  // ...existant...
+  options: options.map((o, i) => ({
+    nom: o.nom.trim(),
+    prixDescription: o.prixDescription.trim() || 'Sur demande',
+    ordre: i,
   })),
-  // ...
 });
 ```
 
-### 9. `src/lib/supabase-queries.ts`
+**UI — Section 7 (collapsible, entre Section 6 et les boutons) :**
 
-**`sauvegarderSoumission`** — ajouter `nombreEtablissements` :
-```ts
-// Dans params :
-nombreEtablissements: number;
+```text
+<Card>
+  <Collapsible defaultOpen={false}>
+    <CollapsibleTrigger asChild>
+      <CardHeader className="cursor-pointer select-none pb-3">
+        <div className="flex items-center justify-between">
+          <CardTitle className="text-base">7. Options supplémentaires (au besoin)</CardTitle>
+          <div className="flex items-center gap-1 text-muted-foreground">
+            {options.length > 0 && (
+              <span className="text-xs px-2 py-0.5 rounded-full" ...>
+                {options.length} option{options.length > 1 ? 's' : ''}
+              </span>
+            )}
+            <ChevronRight className="h-4 w-4 transition-transform [[data-state=open]>&]:rotate-90" />
+          </div>
+        </div>
+      </CardHeader>
+    </CollapsibleTrigger>
 
-// Dans l'insert soumissions :
-nombre_etablissements: params.nombreEtablissements,
+    <CollapsibleContent>
+      <CardContent className="space-y-3 pt-0">
+        {/* Suggestions rapides */}
+        <div className="flex flex-wrap gap-2">
+          {optionsDefaut.map(opt => (
+            <Button
+              key={opt.nom}
+              variant="outline"
+              size="sm"
+              className="text-xs h-7 gap-1"
+              onClick={() => ajouterOption(opt)}
+              disabled={options.length >= 10}>
+              <Plus className="h-3 w-3" />{opt.nom}
+            </Button>
+          ))}
+          <Button
+            variant="outline"
+            size="sm"
+            className="text-xs h-7 gap-1"
+            onClick={() => ajouterOption()}
+            disabled={options.length >= 10}>
+            <Plus className="h-3 w-3" />Option personnalisée
+          </Button>
+        </div>
+
+        {/* Maximum atteint */}
+        {options.length >= 10 && (
+          <p className="text-xs text-muted-foreground">Maximum 10 options atteint.</p>
+        )}
+
+        {/* Liste des options ajoutées */}
+        {options.map((opt, idx) => (
+          <div key={opt.id} className="flex gap-2 items-start p-3 rounded-lg border">
+            <div className="flex-1 space-y-2">
+              <Input
+                placeholder="Nom de l'option *"
+                value={opt.nom}
+                onChange={e => majOption(opt.id, 'nom', e.target.value)}
+                className="h-9 text-sm"
+              />
+              <Input
+                placeholder="Prix / description (ex. : 50 $ / unité / mois)"
+                value={opt.prixDescription}
+                onChange={e => majOption(opt.id, 'prixDescription', e.target.value)}
+                className="h-9 text-sm"
+              />
+            </div>
+            <Button
+              size="icon"
+              variant="ghost"
+              className="h-9 w-9 text-destructive mt-0"
+              onClick={() => supprimerOption(opt.id)}>
+              <Trash2 className="h-4 w-4" />
+            </Button>
+          </div>
+        ))}
+      </CardContent>
+    </CollapsibleContent>
+  </Collapsible>
+</Card>
 ```
 
-**`dupliquerSoumission`** — copier `nombre_etablissements` :
-```ts
-nombre_etablissements: soumission.nombre_etablissements ?? 1,
+**Récapitulatif sticky — Encadré discret (sous le coût total) :**
+
+```text
+{options.length > 0 && (
+  <div className="border-t pt-3">
+    <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-2">
+      Options disponibles
+    </p>
+    <div className="space-y-1">
+      {options.map(opt => (
+        <div key={opt.id} className="flex justify-between text-xs">
+          <span className="text-muted-foreground truncate max-w-[140px]">{opt.nom}</span>
+          <span className="text-muted-foreground text-right ml-2">
+            {opt.prixDescription || 'Sur demande'}
+          </span>
+        </div>
+      ))}
+    </div>
+  </div>
+)}
 ```
 
-**`fetchSoumissionById`** — aucun changement structurel requis. Chaque ligne dans `etablissements` a déjà son `segment_id` et `segment` joint.
+**Dépendances useEffect Ctrl+S :** ajouter `options` au tableau.
 
-### 10. `src/components/pdf/SoumissionPDF.tsx`
+### 4. `src/components/pdf/SoumissionPDF.tsx`
 
-**Section « Détail par établissement » → « Détail de l'abonnement »**
+Recevoir `options` comme prop :
+```ts
+interface SoumissionPDFProps {
+  // ...existant...
+  options: SoumissionOption[];
+}
+```
 
-Remplacer le tableau actuel par un tableau à 4 colonnes :
+Section conditionnelle **après les Notes importantes et avant les Conditions** :
+```ts
+{options.length > 0 && (
+  <div className="pdf-no-break" style={{ marginBottom: 24 }}>
+    <div style={{ fontSize: '11pt', fontWeight: 700, marginBottom: 10, color: '#1e3a5f' }}>
+      Options supplémentaires (au besoin)
+    </div>
+    <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '10pt' }}>
+      <thead>
+        <tr style={{ background: '#f0f4f8' }}>
+          <th style={{ padding: '8px 12px', textAlign: 'left', fontWeight: 600, color: '#6b7280' }}>Option</th>
+          <th style={{ padding: '8px 12px', textAlign: 'right', fontWeight: 600, color: '#6b7280' }}>Prix</th>
+        </tr>
+      </thead>
+      <tbody>
+        {options.map((opt, i) => (
+          <tr key={opt.id} style={{ borderBottom: '1px solid #e5e7eb', background: i % 2 === 0 ? '#f9fafb' : 'white' }}>
+            <td style={{ padding: '8px 12px' }}>{opt.nom}</td>
+            <td style={{ padding: '8px 12px', textAlign: 'right', color: '#6b7280' }}>
+              {opt.prix_description || 'Sur demande'}
+            </td>
+          </tr>
+        ))}
+      </tbody>
+    </table>
+    <p style={{ fontSize: '8.5pt', color: '#9ca3af', marginTop: 8, fontStyle: 'italic' }}>
+      Ces options sont informatives et ne sont pas incluses dans le total de l'abonnement.
+    </p>
+  </div>
+)}
+```
 
-| Description | Quantité | Tarif/mois | Sous-total/mois |
-|---|---|---|---|
-| Portes autonomes | 345 | 5,00 $/unité | 1 725,00 $ |
-| Lits – catég. 3-4 | 28 | 5,00 $/lit | 140,00 $ |
-| **Total abonnement** | — | — | **1 865,00 $** |
+**Dans les pages qui utilisent `SoumissionPDF`** (`SoumissionDetail.tsx`) : passer `options={options}`.
 
-La « Description » = nom du segment (via `e.segment?.nom` ou `e.nom_etablissement` comme fallback). La quantité = `e.nombre_unites`. Le tarif = `prix_brut / nombre_unites` (calculé). Le sous-total = `e.prix_brut`.
+### 5. `src/pages/SoumissionPresentation.tsx`
 
-Pour les frais d'intégration, afficher `soumission.nombre_etablissements × 3 000 $` au lieu de `etablissements.length × 3 000 $`.
+La requête via `fetchSoumissionById` retournera maintenant `options`. Destructurer :
+```ts
+const { soumission, etablissements, rabais, roi, options } = data;
+```
 
-### 11. `src/pages/SoumissionPresentation.tsx`
+Section conditionnelle **après les Rabais et avant le ROI** :
+```tsx
+{options && options.length > 0 && (
+  <div className="p-6 rounded-2xl" style={{ background: 'hsl(var(--sidebar-accent))' }}>
+    <h3 className="font-semibold mb-4" style={{ color: 'hsl(var(--sidebar-foreground))' }}>
+      Options supplémentaires (au besoin)
+    </h3>
+    <div className="rounded-xl overflow-hidden border" style={{ borderColor: 'hsl(var(--sidebar-border))' }}>
+      <table className="w-full text-sm">
+        <thead>
+          <tr style={{ background: 'hsl(var(--sidebar-accent) / 0.5)' }}>
+            <th className="text-left px-4 py-3 text-xs font-semibold uppercase tracking-wider"
+              style={{ color: 'hsl(var(--sidebar-foreground) / 0.6)' }}>Option</th>
+            <th className="text-right px-4 py-3 text-xs font-semibold uppercase tracking-wider"
+              style={{ color: 'hsl(var(--sidebar-foreground) / 0.6)' }}>Prix</th>
+          </tr>
+        </thead>
+        <tbody>
+          {options.map((opt: any) => (
+            <tr key={opt.id} className="border-t" style={{ borderColor: 'hsl(var(--sidebar-border))' }}>
+              <td className="px-4 py-3 font-medium" style={{ color: 'hsl(var(--sidebar-foreground))' }}>
+                {opt.nom}
+              </td>
+              <td className="px-4 py-3 text-right" style={{ color: 'hsl(var(--sidebar-foreground) / 0.7)' }}>
+                {opt.prix_description || 'Sur demande'}
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+    <p className="text-xs mt-3" style={{ color: 'hsl(var(--sidebar-foreground) / 0.4)', fontStyle: 'italic' }}>
+      Ces options sont informatives et n'affectent pas les totaux ci-dessus.
+    </p>
+  </div>
+)}
+```
 
-Même logique que le PDF : tableau avec nom du segment, quantité, prix final par ligne.
+### 6. `src/pages/SoumissionDetail.tsx`
 
-Remplacer la colonne « Unités » par une colonne plus descriptive et utiliser `e.segment?.nom` comme label de ligne.
-
-Pour la ligne « Frais d'intégration » : `soumission.nombre_etablissements × 3 000 $`.
-
-### 12. `src/pages/SoumissionDetail.tsx`
-
-Le tableau existant « Établissements » affiche déjà `nom_etablissement`, `nombre_unites`, `prix_brut`, `prix_final`. Avec le nouveau système, `nom_etablissement` sera auto-généré comme `"Portes autonomes — 345 unités"`. C'est déjà lisible — pas de refonte requise.
-
-Ajouter optionnellement une colonne « Segment » qui affiche `e.segment?.nom`.
-
----
-
-## Gestion du toggle pilote — Adaptation
-
-La section 4 (Rabais) garde le toggle pilote. Le switch par ligne « Ligne pilote » est visible dans chaque ligne de tarification **seulement si le toggle pilote (section 4) est activé** — comportement identique au switch « Établissement pilote » précédent.
+Le composant appelle `fetchSoumissionById(id)` — il recevra automatiquement `options`. Ajouter une `Card` après la card Rabais :
+```tsx
+{options && options.length > 0 && (
+  <Card>
+    <CardHeader className="pb-3">
+      <CardTitle className="text-base">Options supplémentaires</CardTitle>
+    </CardHeader>
+    <CardContent>
+      <div className="space-y-2">
+        {options.map((opt: any, i: number) => (
+          <div key={opt.id} className="flex justify-between text-sm py-2 border-b last:border-0">
+            <span className="font-medium">{opt.nom}</span>
+            <span className="text-muted-foreground">{opt.prix_description || 'Sur demande'}</span>
+          </div>
+        ))}
+      </div>
+    </CardContent>
+  </Card>
+)}
+```
 
 ---
 
@@ -297,49 +476,50 @@ La section 4 (Rabais) garde le toggle pilote. Le switch par ligne « Ligne pilot
 
 ```text
 Étape 1 → Migration DB :
-           ALTER TABLE soumissions ADD COLUMN nombre_etablissements INTEGER DEFAULT 1
+           CREATE TABLE soumission_options (...)
+           ALTER TABLE ... ENABLE ROW LEVEL SECURITY
+           CREATE POLICY ...
+           INSERT INTO config (options pré-configurées)
 
 Étape 2 → supabase-queries.ts :
-           a. sauvegarderSoumission (+ nombreEtablissements dans params + insert)
-           b. dupliquerSoumission (copier nombre_etablissements)
-           Note : fetchSoumissionById ne change pas structurellement
+           a. Export type SoumissionOption
+           b. fetchSoumissionById → 5e requête parallèle options + retour
+           c. sauvegarderSoumission → param options + insert
+           d. dupliquerSoumission → copie des options
 
 Étape 3 → Calculateur.tsx :
-           a. Supprimer état segmentId global + interface Etablissement
-           b. Nouveau type LigneTarification + état lignes[] + nombreEtablissements
-           c. Nouvelle fonction calculerPrixLigne (recherche segment par ligne)
-           d. Mise à jour calculs[], fraisIntegration (basé sur nombreEtablissements)
-           e. Section 1 (dropdown global) → supprimée
-           f. Section 2 → ajouter champ nombre d'établissements
-           g. Section 3 → UI lignes de tarification avec Select par ligne
-           h. Validation handleSauvegarder mise à jour
-           i. Récapitulatif sticky : liste par ligne
-           j. useEffect Ctrl+S : dépendances mises à jour
+           a. Type OptionSupplementaire
+           b. État options[]
+           c. Parsing optionsDefaut depuis config
+           d. Handlers : ajouterOption, supprimerOption, majOption
+           e. Validation dans handleSauvegarder
+           f. Passage options à sauvegarderSoumission
+           g. Section 7 (collapsible) dans le formulaire
+           h. Encadré « Options disponibles » dans le récapitulatif sticky
+           i. Ajout de options aux dépendances Ctrl+S
 
 Étape 4 → SoumissionPDF.tsx :
-           a. Tableau « Détail de l'abonnement » avec colonnes Description/Quantité/Tarif/Sous-total
-           b. Frais d'intégration → soumission.nombre_etablissements
+           a. Prop options: SoumissionOption[]
+           b. Section conditionnelle avant les conditions
 
-Étape 5 → SoumissionPresentation.tsx :
-           a. Tableau multi-segments avec nom du segment
-           b. Frais d'intégration → soumission.nombre_etablissements
+Étape 5 → SoumissionDetail.tsx :
+           a. Passer options={options || []} à SoumissionPDF
+           b. Card « Options supplémentaires »
 
-Étape 6 → SoumissionDetail.tsx :
-           a. Colonne segment dans le tableau établissements
+Étape 6 → SoumissionPresentation.tsx :
+           a. Destructurer options depuis data
+           b. Section conditionnelle après les rabais
 ```
 
 ---
 
 ## Edge cases couverts
 
-- **Même segment deux fois** : autorisé, chaque ligne est indépendante
-- **Dernière ligne non supprimable** : `lignes.length > 1` pour afficher le bouton ✕
-- **Maximum 10 lignes** : bouton désactivé + message d'info
-- **Segment changé sur une ligne** : `prixUnitaireOverride` remis à null → prix par défaut du nouveau segment
-- **Soumissions existantes** : `nombre_etablissements DEFAULT 1` → rétrocompatibles ; `nom_etablissement` était déjà stocké
-- **Frais d'intégration** : basés sur `nombreEtablissements` (champ séparé), pas sur `lignes.length`
-- **Toggle pilote** : le switch par ligne est désactivé si le toggle pilote (section 4) est off
-- **ROI** : utilise toujours `etablissements.length` (nombre de lignes) pour `nbEtablissements` — comportement conservé
-- **Duplication** : `nombre_etablissements` copié ; les lignes (`soumission_etablissements`) copiées comme avant
-- **Validation** : chaque ligne doit avoir un `segmentId` non vide ET `nombreUnites ≥ 1`
-- **PDF frais d'intégration** : affiche `soumission.nombre_etablissements × 3 000 $` (pas `etablissements.length`)
+- **Aucune option** : la section n'apparaît nulle part (PDF, présentation, récap, détail)
+- **Nom vide → sauvegarde bloquée** : validation dans `handleSauvegarder`
+- **Prix vide → "Sur demande"** : fallback dans l'affichage et à la sauvegarde
+- **Maximum 10 options** : boutons "+ Ajouter" désactivés + message
+- **Duplication** : `dupliquerSoumission` copie les lignes de `soumission_options`
+- **Calcul non affecté** : les options ne participent à aucun calcul de total
+- **Config admin** : les suggestions pré-configurées viennent de la table `config` (modifiable via AdminConfigSoumissions)
+- **Soumissions existantes** : `ON DELETE CASCADE` sur `soumission_id` → pas d'orphelins si la soumission est supprimée
