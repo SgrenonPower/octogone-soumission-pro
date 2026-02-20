@@ -4,6 +4,8 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter, Routes, Route } from "react-router-dom";
 import Login from "./pages/Login";
+import ForgotPassword from "./pages/ForgotPassword";
+import ResetPassword from "./pages/ResetPassword";
 import Calculateur from "./pages/Calculateur";
 import Soumissions from "./pages/Soumissions";
 import SoumissionDetail from "./pages/SoumissionDetail";
@@ -35,8 +37,10 @@ const App = () => (
       <Sonner />
       <BrowserRouter>
         <Routes>
-          {/* Page de login — toujours accessible */}
+          {/* Pages publiques */}
           <Route path="/" element={<Login />} />
+          <Route path="/forgot-password" element={<ForgotPassword />} />
+          <Route path="/reset-password" element={<ResetPassword />} />
 
           {/* Routes protégées */}
           <Route path="/calculateur" element={<ProtectedRoute><Calculateur /></ProtectedRoute>} />
