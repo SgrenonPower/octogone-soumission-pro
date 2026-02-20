@@ -5,7 +5,59 @@ import { Database } from '@/integrations/supabase/types';
 
 type SoumissionRoi = Database['public']['Tables']['soumission_roi']['Row'];
 type SoumissionRoiModule = Database['public']['Tables']['soumission_roi_modules']['Row'] & {
-  modules_roi?: { nom: string; description: string | null } | null;
+  modules_roi?: { nom: string; description: string | null; slug: string } | null;
+};
+
+// ── Mapping slug module → perte invisible ──
+const PERTES_INVISIBLES: Record<string, { emoji: string; titre: string; description: string; stat: string }> = {
+  'thermometres': {
+    emoji: '🌡️',
+    titre: 'Bris de chaîne de froid',
+    description: 'Pertes alimentaires dues aux variations de température non détectées',
+    stat: '60 % des cuisines : au moins 1 incident/an',
+  },
+  'produits-recettes': {
+    emoji: '📖',
+    titre: 'Gaspillage par surproduction',
+    description: 'Sans recettes standardisées, chaque cuisinier prépare "à peu près" — les surplus finissent à la poubelle',
+    stat: '4 à 10 % des achats alimentaires gaspillés',
+  },
+  'inventaires': {
+    emoji: '📦',
+    titre: 'Commandes à l\'aveugle',
+    description: 'Sans visibilité sur les stocks, on commande en double ou trop tard — surstock et ruptures',
+    stat: '5 à 10 % des approvisionnements perdus',
+  },
+  'inventaires-temps-reel': {
+    emoji: '📊',
+    titre: 'Écarts invisibles',
+    description: 'Les incongruités d\'inventaire passent inaperçues pendant des semaines',
+    stat: 'Pertes non détectées pendant des mois',
+  },
+  'facturation': {
+    emoji: '📄',
+    titre: 'Heures perdues en saisie manuelle',
+    description: 'La facturation papier consomme un temps fou et génère des erreurs',
+    stat: '65 heures/an de travail administratif évitable',
+  },
+  'paniers-commandes': {
+    emoji: '🛒',
+    titre: 'Temps perdu en commandes manuelles',
+    description: 'Chaque responsable passe des heures à commander par téléphone ou courriel',
+    stat: '50 heures/an par responsable',
+  },
+  'ressources-humaines': {
+    emoji: '👥',
+    titre: 'Administration RH manuelle',
+    description: 'Horaires, paies, suivis — tout est fait à la main, tout prend trop de temps',
+    stat: '72 heures/an en gestion RH évitable',
+  },
+  'taches-repetitives': {
+    emoji: '🔄',
+    titre: 'Tâches répétées sans automatisation',
+    description: 'Des heures chaque semaine à refaire les mêmes vérifications, rapports, suivis',
+    stat: '2 à 5 heures/semaine gaspillées',
+  },
 };
 
 interface SoumissionPDFProps {
@@ -127,6 +179,83 @@ const SoumissionPDF = ({ soumission, etablissements, rabais, roi, roiModules, op
           {etablissements.length} établissement{etablissements.length > 1 ? 's' : ''}
         </div>
       </div>
+
+      {/* ── SECTION "VOS PERTES INVISIBLES" (uniquement si ROI actif) ── */}
+      {hasRoi && (() => {
+        const budgetAlimentaire = Number(roi!.budget_alimentaire || 0);
+        const pertesAvecDonnees = modulesSelectionnes
+          .map(m => {
+            const slug = (m as any).modules_roi?.slug || '';
+            const perte = PERTES_INVISIBLES[slug];
+            return perte ? { ...perte, id: m.id } : null;
+          })
+          .filter(Boolean) as (typeof PERTES_INVISIBLES[string] & { id: string })[];
+
+        if (pertesAvecDonnees.length === 0) return null;
+
+        return (
+          <div className="pdf-no-break" style={{ marginBottom: 28, padding: '18px 20px', background: '#fef9f9', border: '1px solid #fecaca', borderRadius: 10 }}>
+            {/* Titre */}
+            <div style={{ fontSize: '13pt', fontWeight: 800, color: '#b91c1c', marginBottom: 4 }}>
+              Ce que vos factures ne vous montrent pas
+            </div>
+            <div style={{ fontSize: '9pt', color: '#6b7280', fontStyle: 'italic', marginBottom: 16 }}>
+              Vos factures alimentaires vous indiquent combien vous dépensez. Mais elles ne révèlent jamais combien vous perdez.
+              Sans système de suivi en place, ces pertes restent invisibles — comme une passoire dont personne ne connaît l'existence.
+            </div>
+
+            {/* Grille de cartes (2 colonnes) */}
+            <div style={{ display: 'grid', gridTemplateColumns: pertesAvecDonnees.length === 1 ? '1fr' : '1fr 1fr', gap: 10, marginBottom: 14 }}>
+              {pertesAvecDonnees.map(perte => (
+                <div key={perte.id} style={{
+                  background: '#FEF2F2',
+                  border: '1px solid #FECACA',
+                  borderRadius: 8,
+                  padding: '12px 14px',
+                }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
+                    <span style={{ fontSize: '14pt' }}>{perte.emoji}</span>
+                    <div style={{ fontSize: '10pt', fontWeight: 700, color: '#991b1b' }}>{perte.titre}</div>
+                  </div>
+                  <div style={{ fontSize: '9pt', color: '#6b7280', marginBottom: 8, lineHeight: 1.4 }}>{perte.description}</div>
+                  <div style={{
+                    display: 'inline-block',
+                    background: '#fee2e2',
+                    color: '#dc2626',
+                    borderRadius: 4,
+                    padding: '3px 8px',
+                    fontSize: '8pt',
+                    fontWeight: 700,
+                  }}>
+                    {perte.stat}
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            {/* Encadré chiffre-choc personnalisé */}
+            {budgetAlimentaire > 0 && (
+              <div style={{
+                background: '#fff7ed',
+                border: '1px solid #fed7aa',
+                borderRadius: 8,
+                padding: '12px 16px',
+                fontSize: '9.5pt',
+                color: '#92400e',
+              }}>
+                En moyenne, les établissements de gestion alimentaire perdent entre 5 et 15 % de leur budget alimentaire
+                en pertes invisibles chaque année. Pour un budget de{' '}
+                <strong style={{ color: '#dc2626' }}>{new Intl.NumberFormat('fr-CA', { style: 'currency', currency: 'CAD', maximumFractionDigits: 0 }).format(budgetAlimentaire)}</strong>,
+                cela représente entre{' '}
+                <strong style={{ color: '#dc2626' }}>{new Intl.NumberFormat('fr-CA', { style: 'currency', currency: 'CAD', maximumFractionDigits: 0 }).format(budgetAlimentaire * 0.05)}</strong>
+                {' '}et{' '}
+                <strong style={{ color: '#dc2626' }}>{new Intl.NumberFormat('fr-CA', { style: 'currency', currency: 'CAD', maximumFractionDigits: 0 }).format(budgetAlimentaire * 0.15)}</strong>
+                {' '}de pertes potentielles annuelles.
+              </div>
+            )}
+          </div>
+        );
+      })()}
 
       {/* ── SECTION 1 : VOTRE INVESTISSEMENT ── */}
       <div className="pdf-no-break" style={{ marginBottom: 24 }}>
