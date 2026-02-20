@@ -308,6 +308,38 @@ export type Database = {
           },
         ]
       }
+      soumission_options: {
+        Row: {
+          id: string
+          nom: string
+          ordre: number | null
+          prix_description: string
+          soumission_id: string
+        }
+        Insert: {
+          id?: string
+          nom: string
+          ordre?: number | null
+          prix_description?: string
+          soumission_id: string
+        }
+        Update: {
+          id?: string
+          nom?: string
+          ordre?: number | null
+          prix_description?: string
+          soumission_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "soumission_options_soumission_id_fkey"
+            columns: ["soumission_id"]
+            isOneToOne: false
+            referencedRelation: "soumissions"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       soumission_rabais: {
         Row: {
           description_rabais: string | null
