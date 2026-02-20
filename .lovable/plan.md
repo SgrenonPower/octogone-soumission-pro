@@ -1,78 +1,179 @@
 
-# Audit complet — État de l'implémentation
+# Refonte de la grille de prix : Modules produit cumulatifs + Rabais volume par paliers
 
-## Résumé
+## Contexte et portée
 
-Après lecture complète de chaque fichier concerné et requête directe à la base de données, **l'ensemble des 7 modifications demandées est déjà en place**. Aucune action de développement n'est nécessaire.
-
----
-
-## Vérification par fichier
-
-### Base de données — TOUT EST EN PLACE
-
-Requête directe sur `public.config` :
-
-- `conditions_generales` : commence exactement par *"Les prix sont en dollars canadiens (CAD) et n'incluent pas les taxes applicables (TPS/TVQ)..."* — texte complet conforme.
-- `texte_portee_defaut` : présent avec la valeur *"Octogone est une solution intégrée de gestion alimentaire..."*
-- Colonne `texte_portee` : présente dans la table `soumissions` (confirmé par `information_schema.columns`).
-
-### `src/lib/supabase-queries.ts` — COMPLET
-
-- Ligne 256 : `.select('*, modules_roi(nom, description, slug)')` — le join est en place.
-- Ligne 465 : `texte_portee: params.textePortee || null` — la sauvegarde inclut le champ.
-- Ligne 304 : `texte_portee: (soumission as any).texte_portee || null` — la duplication inclut le champ.
-
-### `src/components/pdf/SoumissionPDF.tsx` — COMPLET (618 lignes)
-
-Structure vérifiée section par section :
-
-1. En-tête (ligne 156)
-2. Bloc CLIENT (ligne 175)
-3. Bloc PORTÉE (lignes 186-201) — texte dynamique avec fallback config
-4. Section "VOS PERTES INVISIBLES" (lignes 203-278) — conditionnel `hasRoi`, grille 2 colonnes, chiffre-choc budget alimentaire
-5. Section "VOTRE INVESTISSEMENT" (lignes 280-424) — tableau avec prix barrés, badges rabais, 3 cartes récapitulatives
-6. Section "CE QUE VOUS GAGNEZ" (lignes 426-523) — tableau ROI avec `m.modules_roi?.nom`, verdict comparatif, paragraphe conclusion
-7. OPTIONS (ligne 525), NOTES (ligne 555)
-8. CONDITIONS GÉNÉRALES (lignes 576-582) — mention TPS/TVQ depuis `config.conditions_generales`
-9. Bloc ACCEPTATION / SIGNATURE (lignes 584-606) — `pageBreakInside: 'avoid'`, lignes Nom, Date, Signature
-10. PIED DE PAGE (ligne 608)
-
-### `src/pages/SoumissionPresentation.tsx` — COMPLET (581 lignes)
-
-- Section PORTÉE (lignes 173-188) — italique centré, fallback config
-- Section "VOS PERTES INVISIBLES" (lignes 190-271) — conditionnel `hasRoi`, cartes avec icônes Lucide, chiffre-choc
-- Section "VOTRE INVESTISSEMENT" (lignes 273-416) — tableau avec prix barrés, badges, 3 cartes
-- Section ROI + VERDICT (lignes 419-522) — vrais noms modules, bloc verdict, paragraphe conclusion
-- PAS de bloc Acceptation/Signature — conforme à la demande
-
-### `src/pages/SoumissionDetail.tsx` — COMPLET (471 lignes)
-
-- Synthèse ROI en haut (lignes 221-252) — 4 cartes : Économies, Investissement, Bénéfice net, ROI multiplicateur
-- Tableau établissements avec prix barrés + colonne Économie (lignes 260-319)
-- Tableau détail ROI avec `m.modules_roi?.nom` (lignes 405-415)
-
-### `src/pages/Calculateur.tsx` — COMPLET
-
-- État `textePortee` (ligne 186)
-- Textarea "Texte de portée" dans Section 6 Notes (lignes 900-915) — avec placeholder depuis config, label optionnel
-- Passage de `textePortee: textePortee.trim() || undefined` dans `sauvegarderSoumission` (ligne 393)
-
-### `src/pages/admin/ConfigSoumissions.tsx` — COMPLET
-
-- État `textePortee` (ligne 17)
-- Champ textarea "Texte de portée par défaut" (lignes 71-83) avec `details` pour voir la valeur actuelle
-- Clé `texte_portee_defaut` dans `handleSave` (ligne 29)
-- Condition `disabled` inclut `textePortee` (ligne 114)
+Cette refonte transforme le modèle de tarification de l'application. Elle touche 5 fichiers de code et nécessite une migration de base de données. Les soumissions existantes ne sont pas cassées — les anciens segments restent en base avec `actif = false`.
 
 ---
 
-## Recommandation
+## Partie 1 — Migration base de données
 
-Tout le code est prêt. Procéder directement aux **tests de validation end-to-end** :
+Une seule migration SQL qui fait tout :
 
-1. Créer une nouvelle soumission avec segment + 2 établissements + rabais engagement annuel + texte de portée personnalisé
-2. Activer le ROI avec 3 modules et saisir un budget alimentaire
-3. Sauvegarder → ouvrir la page de détail pour vérifier : synthèse ROI, prix barrés, noms de modules corrects
-4. Ouvrir le mode Présentation pour vérifier toutes les sections dans le thème sidebar
-5. Cliquer "Générer le PDF" (Ctrl+P) pour vérifier : bloc Portée, Pertes invisibles, Investissement, ROI, Verdict, Acceptation/Signature, mention TPS/TVQ dans les conditions
+**Segments :**
+- Désactiver (`actif = false`) les 4 segments RPA existants (`rpa-cat-1`, `rpa-cat-2`, `rpa-cat-3`, `rpa-cat-4`)
+- Insérer 4 nouveaux segments : Cat 1-2, Cat 3-4, CHSLD, Public/Hôpitaux
+- Mettre à jour l'ordre des segments existants (CPE=5, Cafétéria=6, Traiteur=7, Restaurant=8)
+
+**Nouvelles tables :**
+- `modules_produit` — catalogue des 2 modules (Interface soins, IA) avec slug, ordre, actif
+- `prix_modules_produit` — prix de chaque module par segment (clé unique `segment_id + module_produit_id`)
+- `soumission_etablissement_modules` — quels modules sont actifs sur chaque établissement d'une soumission
+- RLS permissive (`USING (true) WITH CHECK (true)`) sur les 3 nouvelles tables
+
+**Données initiales :** Insertion de tous les prix modules par segment selon la grille fournie
+
+**Autres changements :**
+- `UPDATE rabais SET actif = false WHERE slug = 'volume-500'`
+- `ALTER TABLE soumissions ADD COLUMN IF NOT EXISTS est_rqra boolean DEFAULT false`
+
+---
+
+## Partie 2 — `src/lib/supabase-queries.ts`
+
+**Nouveaux types et fonctions à ajouter :**
+
+```
+ModuleProduit        → type depuis les nouveaux types DB
+PrixModuleProduit    → type depuis les nouveaux types DB
+
+fetchModulesProduit()          → SELECT * FROM modules_produit WHERE actif = true ORDER BY ordre
+fetchPrixModulesProduit()      → SELECT * FROM prix_modules_produit (tous, pour filtrage côté client)
+updatePrixModuleProduit(id, prix_unitaire) → UPDATE prix_modules_produit
+```
+
+**Modifier `sauvegarderSoumission` :**
+- Ajouter `estRqra?: boolean` dans les params → `est_rqra: params.estRqra ?? false` dans l'insert soumissions
+- Ajouter `modulesProduitsActifs?: Array<{ moduleId: string; prixUnitaire: number }>` par établissement
+- Après l'insert des établissements, récupérer les IDs retournés et insérer dans `soumission_etablissement_modules`
+
+**Modifier `fetchSoumissionById` :**
+- Charger les modules produit de chaque établissement via join `soumission_etablissement_modules`
+
+---
+
+## Partie 3 — `src/pages/Calculateur.tsx`
+
+### Nouvelle logique de calcul (remplace `calculerPrixEtablissement`)
+
+```typescript
+// Nouvelle fonction helper
+const calculerRabaisVolume = (nbUnites: number): number => {
+  if (nbUnites >= 1000) return 15;
+  if (nbUnites >= 500)  return 10;
+  if (nbUnites >= 300)  return 5;
+  return 0;
+};
+
+// Signature modifiée de calculerPrixEtablissement :
+// + modulesProduitActifs: ModuleProduit[]
+// + prixModules: PrixModuleProduit[]
+// + segment (pour chercher le prix module par segment_id)
+
+// Ordre d'application des rabais (nouveau) :
+// 1. Prix base (linéaire ou palier) + modules produit
+// 2. Rabais volume automatique (par unité)
+// 3. Rabais dropdown (multi-sites)
+// 4. Engagement annuel
+// 5. Pilote
+```
+
+### Nouveaux états React
+
+```typescript
+const [modulesProduitActifs, setModulesProduitActifs] = useState<Set<string>>(new Set());
+const [estRqra, setEstRqra] = useState(false);
+```
+
+### Nouvelles queries TanStack
+
+```typescript
+useQuery({ queryKey: ['modules-produit'], queryFn: fetchModulesProduit })
+useQuery({ queryKey: ['prix-modules-produit'], queryFn: fetchPrixModulesProduit })
+```
+
+### Nouveaux éléments UI dans le formulaire
+
+**Section 1.5 — Modules produit (entre segment et client) :**
+- Titre : "Modules produit (cumulatifs)"
+- Checkboxes pour chaque module actif, avec le prix affiché selon le segment sélectionné
+- Ex : `☐ Interface soins (+7,00 $/lit/mois)` | `☐ IA (+9,00 $/lit/mois)`
+- Si aucun segment sélectionné → message "Sélectionnez d'abord un segment"
+- Pour le segment restaurant (paliers) → afficher le montant forfaitaire fixe
+
+**Section 3 — Par établissement :**
+- Badge vert automatique si `calculerRabaisVolume(etab.nombreUnites) > 0`
+- Ex : `Rabais volume : −5 %` (en vert sous le champ unités)
+
+**Section 4 — Rabais :**
+- Retirer "Volume (volume-500)" du dropdown — ne garder que : Aucun | Multi-sites | Personnalisé
+- Ajouter toggle RQRA :
+  ```
+  ☐ Client RQRA (frais d'intégration offerts)
+  ```
+  Quand coché → `fraisOfferts = true` (comportement identique au toggle pilote existant)
+
+**Panneau récapitulatif (droite) :**
+- Si modules actifs → afficher sous "Sous-total" la liste des modules avec leur contribution totale
+- Si rabais volume → afficher par établissement le % appliqué
+- Si RQRA → badge "RQRA" à côté des frais offerts
+
+### Sauvegarde
+
+Dans `handleSauvegarder`, passer aux `etablissements` les modules produit actifs avec leur prix pour le segment.
+
+---
+
+## Partie 4 — `src/pages/admin/Tarification.tsx`
+
+Ajouter une nouvelle section **"Prix des modules produit par segment"** sous la section Segments existante :
+
+```
+Tableau :
+Segment          | Base (v3) | Interface soins | IA
+────────────────────────────────────────────────────
+Cat 1-2          | 5,00 $    | [input éditable] | [input éditable]
+Cat 3-4          | 5,00 $    | [input éditable] | [input éditable]
+CHSLD            | 5,00 $    | [input éditable] | [input éditable]
+...
+```
+
+- Charger `fetchModulesProduit()` et `fetchPrixModulesProduit()` via useQuery
+- Pour chaque segment actif, afficher une ligne avec ses prix de modules en inputs
+- Bouton Sauvegarder par ligne (ou par cellule) qui appelle `updatePrixModuleProduit`
+- Utiliser le même pattern `editing` state déjà en place
+
+---
+
+## Partie 5 — `src/lib/format.ts` et `src/lib/roi-calc.ts`
+
+Aucune modification nécessaire.
+
+---
+
+## Séquence d'implémentation
+
+```text
+1. Migration SQL (bloquant — les types DB doivent être régénérés avant le code)
+   ↓
+2. supabase-queries.ts — nouveaux types + fetch + update + sauvegarde
+   ↓
+3. Calculateur.tsx — nouvelle logique calcul + UI modules + RQRA + rabais volume
+   ↓
+4. admin/Tarification.tsx — tableau prix modules éditable
+```
+
+---
+
+## Points techniques importants
+
+**Type-safety :** Les nouvelles tables n'existent pas encore dans `types.ts`. Le code utilisera des casts `as any` ciblés (comme déjà fait dans le code existant pour `soumission_options`) uniquement là où nécessaire, jusqu'à ce que les types soient régénérés automatiquement après la migration.
+
+**Rétrocompatibilité :** Les soumissions existantes qui référencent des segments `actif = false` continueront à s'afficher correctement dans les pages Détail et Présentation — le fetch des soumissions charge les données telles qu'elles étaient au moment de la création.
+
+**Suppression "volume" du dropdown :** La constante `defautsRabaisDropdown` et le `RabaisDropdownState.type` seront mis à jour pour retirer l'option `'volume'`. Le type union devient `'aucun' | 'multi-sites' | 'personnalise'`.
+
+**Ordre des rabais :** Le rabais volume automatique s'applique en premier (avant dropdown multi-sites), ce qui est cohérent avec la définition métier "rabais automatique par palier".
+
+**Toggle RQRA vs pilote :** RQRA offre les frais d'intégration indépendamment du toggle pilote. Les deux peuvent coexister. L'état `fraisOfferts` est mis à `true` si l'un OU l'autre est activé.
