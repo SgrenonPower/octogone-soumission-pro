@@ -218,40 +218,104 @@ const SoumissionDetail = () => {
         </CardContent>
       </Card>
 
+      {/* ── Synthèse ROI (si activé) — argument de vente pour le vendeur ── */}
+      {roi.soumission_roi && roi.modules.filter((m: any) => m.selectionne).length > 0 && (() => {
+        const totalAnn = Number(soumission.total_annuel || 0);
+        const econTotales = Number(roi.soumission_roi!.economies_totales || 0);
+        const beneficeNet = econTotales - totalAnn;
+        const positif = beneficeNet >= 0;
+        return (
+          <div className="rounded-xl p-4 border-2 text-sm"
+            style={{
+              background: positif ? 'rgba(16,185,129,0.07)' : 'rgba(245,158,11,0.07)',
+              borderColor: positif ? 'rgba(16,185,129,0.3)' : 'rgba(245,158,11,0.3)',
+            }}>
+            <div className="flex items-center gap-2 mb-3">
+              <TrendingUp className="h-4 w-4" style={{ color: positif ? '#10b981' : '#f59e0b' }} />
+              <span className="font-semibold text-foreground">Argument ROI pour ce client</span>
+            </div>
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+              {[
+                { label: 'Économies générées', value: formatMontant(econTotales) + '/an', color: '#10b981' },
+                { label: 'Investissement', value: formatMontant(Number(soumission.total_mensuel || 0)) + '/mois', color: 'hsl(var(--foreground))' },
+                { label: 'Bénéfice net', value: formatMontant(Math.abs(beneficeNet)) + '/an', color: positif ? '#10b981' : '#f59e0b' },
+                { label: 'ROI', value: `${roi.soumission_roi!.roi_multiplicateur}× en ${roi.soumission_roi!.periode_retour_mois} mois`, color: 'hsl(var(--primary))' },
+              ].map(item => (
+                <div key={item.label} className="p-3 rounded-lg bg-background/50 border" style={{ borderColor: 'hsl(var(--border))' }}>
+                  <p className="text-xs text-muted-foreground mb-1">{item.label}</p>
+                  <p className="font-bold text-sm" style={{ color: item.color }}>{item.value}</p>
+                </div>
+              ))}
+            </div>
+          </div>
+        );
+      })()}
+
       {/* Établissements */}
       <Card>
         <CardHeader className="pb-3">
           <CardTitle className="text-base">Établissements ({etablissements.length})</CardTitle>
         </CardHeader>
         <CardContent>
-          <div className="rounded-lg border overflow-hidden">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="border-b bg-muted/40">
-                  <th className="text-left px-4 py-2.5 text-xs font-semibold text-muted-foreground uppercase tracking-wider">Établissement</th>
-                  <th className="text-left px-4 py-2.5 text-xs font-semibold text-muted-foreground uppercase tracking-wider hidden sm:table-cell">Unités</th>
-                  <th className="text-right px-4 py-2.5 text-xs font-semibold text-muted-foreground uppercase tracking-wider">Prix brut</th>
-                  <th className="text-right px-4 py-2.5 text-xs font-semibold text-muted-foreground uppercase tracking-wider">Prix final</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y">
-                {etablissements.map((e, i) => (
-                  <tr key={e.id} className="hover:bg-muted/20">
-                    <td className="px-4 py-3">
-                      <span className="font-medium">{e.nom_etablissement || `Établissement ${i + 1}`}</span>
-                      {e.est_pilote && (
-                        <span className="ml-2 text-xs px-1.5 py-0.5 rounded text-white"
-                          style={{ background: 'hsl(var(--accent))' }}>pilote</span>
+          {(() => {
+            const totalBrutMens = etablissements.reduce((s, e) => s + Number(e.prix_brut || 0), 0);
+            const totalMens = Number(soumission.total_mensuel || 0);
+            const aDesRabais = totalBrutMens - totalMens > 0.01;
+            return (
+              <div className="rounded-lg border overflow-hidden">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="border-b bg-muted/40">
+                      <th className="text-left px-4 py-2.5 text-xs font-semibold text-muted-foreground uppercase tracking-wider">Établissement</th>
+                      <th className="text-left px-4 py-2.5 text-xs font-semibold text-muted-foreground uppercase tracking-wider hidden sm:table-cell">Unités</th>
+                      {aDesRabais && (
+                        <th className="text-right px-4 py-2.5 text-xs font-semibold text-muted-foreground uppercase tracking-wider">Prix régulier</th>
                       )}
-                    </td>
-                    <td className="px-4 py-3 hidden sm:table-cell text-muted-foreground">{e.nombre_unites}</td>
-                    <td className="px-4 py-3 text-right text-muted-foreground">{formatMontant(Number(e.prix_brut || 0))}</td>
-                    <td className="px-4 py-3 text-right font-semibold">{formatMontant(Number(e.prix_final || 0))}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+                      <th className="text-right px-4 py-2.5 text-xs font-semibold text-muted-foreground uppercase tracking-wider">Votre prix</th>
+                      {aDesRabais && (
+                        <th className="text-right px-4 py-2.5 text-xs font-semibold text-muted-foreground uppercase tracking-wider hidden sm:table-cell">Économie</th>
+                      )}
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y">
+                    {etablissements.map((e, i) => {
+                      const brut = Number(e.prix_brut || 0);
+                      const final = Number(e.prix_final || 0);
+                      const eco = brut - final;
+                      const aRabaisLigne = eco > 0.01;
+                      return (
+                        <tr key={e.id} className="hover:bg-muted/20">
+                          <td className="px-4 py-3">
+                            <span className="font-medium">{e.nom_etablissement || `Établissement ${i + 1}`}</span>
+                            {e.est_pilote && (
+                              <span className="ml-2 text-xs px-1.5 py-0.5 rounded text-white"
+                                style={{ background: 'hsl(var(--accent))' }}>pilote</span>
+                            )}
+                          </td>
+                          <td className="px-4 py-3 hidden sm:table-cell text-muted-foreground">{e.nombre_unites}</td>
+                          {aDesRabais && (
+                            <td className="px-4 py-3 text-right text-muted-foreground/60 text-xs"
+                              style={{ textDecoration: aRabaisLigne ? 'line-through' : 'none' }}>
+                              {formatMontant(brut)}
+                            </td>
+                          )}
+                          <td className="px-4 py-3 text-right font-semibold" style={{ color: 'hsl(var(--primary))' }}>
+                            {formatMontant(final)}
+                          </td>
+                          {aDesRabais && (
+                            <td className="px-4 py-3 text-right text-xs font-semibold hidden sm:table-cell"
+                              style={{ color: aRabaisLigne ? '#10b981' : 'hsl(var(--muted-foreground))' }}>
+                              {aRabaisLigne ? `−\u00a0${formatMontant(eco)}` : '—'}
+                            </td>
+                          )}
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            );
+          })()}
         </CardContent>
       </Card>
 
@@ -319,38 +383,38 @@ const SoumissionDetail = () => {
         </CardContent>
       </Card>
 
-      {/* ROI */}
-      {roi.soumission_roi && (
+      {/* ROI — détail par module avec vrais noms */}
+      {roi.soumission_roi && roi.modules.filter((m: any) => m.selectionne).length > 0 && (
         <Card>
           <CardHeader className="pb-3">
             <CardTitle className="text-base flex items-center gap-2">
-              <TrendingUp className="h-4 w-4" />Analyse ROI
+              <TrendingUp className="h-4 w-4" />Détail ROI par module
             </CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 mb-4">
-              <div className="p-3 rounded-lg" style={{ background: 'hsl(var(--muted))' }}>
-                <p className="text-xs text-muted-foreground">Économies totales</p>
-                <p className="text-lg font-bold" style={{ color: 'hsl(var(--success))' }}>
-                  {formatMontant(Number(roi.soumission_roi.economies_totales || 0))}
-                </p>
-              </div>
-              <div className="p-3 rounded-lg" style={{ background: 'hsl(var(--muted))' }}>
-                <p className="text-xs text-muted-foreground">ROI</p>
-                <p className="text-lg font-bold" style={{ color: 'hsl(var(--primary))' }}>
-                  {roi.soumission_roi.roi_multiplicateur}x
-                </p>
-              </div>
-              <div className="p-3 rounded-lg" style={{ background: 'hsl(var(--muted))' }}>
-                <p className="text-xs text-muted-foreground">Bénéfice net</p>
-                <p className="text-lg font-bold">
-                  {formatMontant(Number((roi.soumission_roi.economies_totales || 0) - (roi.soumission_roi.cout_octogone_annuel || 0)))}
-                </p>
-              </div>
-              <div className="p-3 rounded-lg" style={{ background: 'hsl(var(--muted))' }}>
-                <p className="text-xs text-muted-foreground">Retour en</p>
-                <p className="text-lg font-bold">{roi.soumission_roi.periode_retour_mois} mois</p>
-              </div>
+            <div className="rounded-lg border overflow-hidden">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b bg-muted/40">
+                    <th className="text-left px-4 py-2.5 text-xs font-semibold text-muted-foreground uppercase tracking-wider">Module</th>
+                    <th className="text-right px-4 py-2.5 text-xs font-semibold text-muted-foreground uppercase tracking-wider">Économie/mois</th>
+                    <th className="text-right px-4 py-2.5 text-xs font-semibold text-muted-foreground uppercase tracking-wider hidden sm:table-cell">Économie/an</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y">
+                  {roi.modules.filter((m: any) => m.selectionne).map((m: any, i: number) => (
+                    <tr key={m.id} className="hover:bg-muted/20">
+                      <td className="px-4 py-3 font-medium">{m.modules_roi?.nom || `Module ${i + 1}`}</td>
+                      <td className="px-4 py-3 text-right font-semibold" style={{ color: '#10b981' }}>
+                        {formatMontant(Number(m.economie_mensuelle || 0))}
+                      </td>
+                      <td className="px-4 py-3 text-right font-semibold hidden sm:table-cell" style={{ color: '#10b981' }}>
+                        {formatMontant(Number(m.economie_annuelle || 0))}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
             </div>
           </CardContent>
         </Card>
