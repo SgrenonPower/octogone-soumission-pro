@@ -65,6 +65,22 @@ const PERTES_INVISIBLES: Record<string, PerteData> = {
   },
 };
 
+// ── Utilitaires texte ──
+const nettoyerMarkdown = (texte: string): string =>
+  texte
+    .replace(/\*\*(.*?)\*\*/g, '$1')
+    .replace(/\*(.*?)\*/g, '$1')
+    .replace(/^#+\s/gm, '')
+    .replace(/^[-*]\s/gm, '• ')
+    .trim();
+
+const formaterLigneNote = (ligne: string): string => {
+  const t = ligne.trim();
+  if (t.startsWith('•')) return t;
+  if (t.startsWith('- ') || t.startsWith('* ')) return '• ' + t.slice(2);
+  return '• ' + t;
+};
+
 const SoumissionPresentation = () => {
   const { id } = useParams<{ id: string }>();
 
@@ -181,7 +197,7 @@ const SoumissionPresentation = () => {
                 Portée
               </p>
               <p className="text-sm leading-relaxed italic" style={{ color: C.fgMuted }}>
-                {textePortee}
+                {nettoyerMarkdown(textePortee)}
               </p>
             </div>
           );
@@ -393,18 +409,19 @@ const SoumissionPresentation = () => {
               <p className="text-xs font-semibold uppercase tracking-wider mb-2" style={{ color: C.fgMuted }}>
                 1re année
               </p>
+              {/* Prix barré = totalAnnuel + fraisInt (vrai coût sans frais offerts) */}
+              {fraisOfferts && fraisInt > 0 && (
+                <p className="text-xs line-through mb-1" style={{ color: C.fgFaint }}>
+                  {formatMontant(totalAnnuel + fraisInt)}
+                </p>
+              )}
               <p className="text-3xl font-bold" style={{ color: C.fg }}>
                 {fraisOfferts ? formatMontant(totalAnnuel) : formatMontant(coutAn1)}
               </p>
               {fraisOfferts ? (
-                <div className="mt-2 space-y-0.5">
-                  <p className="text-xs line-through" style={{ color: C.fgFaint }}>
-                    {formatMontant(coutAn1)}
-                  </p>
-                  <p className="text-xs font-semibold" style={{ color: '#10b981' }}>
-                    Intégration offerte ✓
-                  </p>
-                </div>
+                <p className="text-xs font-semibold mt-1" style={{ color: '#10b981' }}>
+                  Intégration offerte ✓
+                </p>
               ) : (
                 fraisInt > 0 && (
                   <p className="text-xs mt-2" style={{ color: C.fgMuted }}>
@@ -481,11 +498,11 @@ const SoumissionPresentation = () => {
                   <span style={{ color: C.fgMuted }}>Vos économies générées :</span>
                   <span className="font-semibold" style={{ color: '#10b981' }}>−{formatMontant(economiesTotalesAnn)} / an</span>
                 </div>
-                <div className="border-t pt-3 flex justify-between items-center" style={{ borderColor: beneficePositif ? 'rgba(16,185,129,0.3)' : 'rgba(245,158,11,0.3)' }}>
+                <div className="border-t pt-3 flex justify-between items-center" style={{ borderColor: beneficePositif ? 'rgba(16,185,129,0.3)' : 'rgba(220,38,38,0.3)' }}>
                   <span className="font-bold text-base" style={{ color: C.fg }}>BÉNÉFICE NET :</span>
                   <span className="text-2xl font-bold"
-                    style={{ color: beneficePositif ? '#10b981' : '#f59e0b' }}>
-                    +{formatMontant(Math.abs(beneficeNetAnn))} / an
+                    style={{ color: beneficePositif ? '#10b981' : '#dc2626' }}>
+                    {beneficePositif ? '+' : ''}{formatMontant(beneficeNetAnn)} / an
                     {beneficePositif && ' ✓'}
                   </span>
                 </div>
@@ -497,7 +514,7 @@ const SoumissionPresentation = () => {
                 </div>
               )}
               {!beneficePositif && (
-                <p className="text-sm italic mt-2" style={{ color: '#d97706' }}>
+                <p className="text-sm italic mt-2" style={{ color: '#dc2626' }}>
                   Ce scénario ne génère pas encore de bénéfice net. Ajustez les modules pour optimiser.
                 </p>
               )}
@@ -511,8 +528,10 @@ const SoumissionPresentation = () => {
                 {nomEntreprise} vous permet d'économiser{' '}
                 <strong style={{ color: '#10b981' }}>{formatMontant(economiesTotalesMens)}</strong> par mois,
                 {' '}soit un bénéfice net de{' '}
-                <strong style={{ color: '#10b981' }}>{formatMontant(Math.abs(beneficeNetMens))}</strong>{' '}
-                {beneficePositif ? 'chaque mois' : 'à atteindre'}.
+                <strong style={{ color: beneficePositif ? '#10b981' : '#dc2626' }}>
+                  {beneficePositif ? '+' : ''}{formatMontant(beneficeNetMens)}
+                </strong>{' '}
+                {beneficePositif ? 'chaque mois' : '— l\'ajout de modules supplémentaires permettrait d\'atteindre la rentabilité'}.
                 {beneficePositif && (
                   <> Votre investissement est rentabilisé en{' '}
                     <strong style={{ color: C.primary }}>{roi.soumission_roi!.periode_retour_mois} mois</strong> seulement.</>
@@ -561,7 +580,7 @@ const SoumissionPresentation = () => {
               </div>
               <div className="space-y-1">
                 {lignes.map((ligne: string, i: number) => (
-                  <p key={i} className="text-sm italic" style={{ color: C.fgMuted }}>• {ligne}</p>
+                  <p key={i} className="text-sm italic" style={{ color: C.fgMuted }}>{formaterLigneNote(ligne)}</p>
                 ))}
               </div>
             </div>
