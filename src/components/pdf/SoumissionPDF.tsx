@@ -221,6 +221,27 @@ const SoumissionPDF = ({ soumission, etablissements, rabais, roi, roiModules }: 
         </div>
       )}
 
+      {/* Notes importantes */}
+      {(() => {
+        const notesPerso = ((soumission as any).notes_personnalisees || '').trim();
+        const lignes = notesPerso ? notesPerso.split('\n').filter(Boolean) : [];
+        if (!lignes.length) return null;
+        return (
+          <div className="pdf-no-break" style={{ marginBottom: 24 }}>
+            <div style={{ fontSize: '11pt', fontWeight: 700, marginBottom: 8, color: '#1e3a5f' }}>
+              Notes importantes
+            </div>
+            <div style={{ background: '#fffbeb', borderLeft: '4px solid #f59e0b', borderRadius: 8, padding: '12px 16px' }}>
+              {lignes.map((ligne: string, i: number) => (
+                <div key={i} style={{ fontSize: '10pt', color: '#78350f', lineHeight: 1.6, wordBreak: 'break-word' }}>
+                  • {ligne}
+                </div>
+              ))}
+            </div>
+          </div>
+        );
+      })()}
+
       {/* Conditions */}
       <div className="pdf-no-break" style={{ marginTop: 40, paddingTop: 20, borderTop: '1px solid #e5e7eb' }}>
         <div style={{ fontSize: '10pt', fontWeight: 700, marginBottom: 8, color: '#1e3a5f' }}>Conditions générales</div>

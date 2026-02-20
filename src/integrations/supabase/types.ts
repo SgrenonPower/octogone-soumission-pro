@@ -454,6 +454,7 @@ export type Database = {
           id: string
           nom_client: string
           notes_internes: string | null
+          notes_personnalisees: string | null
           numero: string
           parent_id: string | null
           statut: string
@@ -471,6 +472,7 @@ export type Database = {
           id?: string
           nom_client: string
           notes_internes?: string | null
+          notes_personnalisees?: string | null
           numero: string
           parent_id?: string | null
           statut?: string
@@ -488,6 +490,7 @@ export type Database = {
           id?: string
           nom_client?: string
           notes_internes?: string | null
+          notes_personnalisees?: string | null
           numero?: string
           parent_id?: string | null
           statut?: string

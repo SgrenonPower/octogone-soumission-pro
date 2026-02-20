@@ -1,0 +1,1 @@
+ALTER TABLE soumissions ADD COLUMN notes_personnalisees TEXT DEFAULT NULL;
