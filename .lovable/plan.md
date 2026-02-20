@@ -1,234 +1,129 @@
 
-# Plan d'implémentation — Sections 4 à 12
+# Ajout des Notes personnalisées sur les soumissions
 
 ## Contexte et état actuel
 
-Le calculateur de prix (Section 1–3) est **entièrement fonctionnel** : segments, paliers, rabais, ordre d'application, frais d'intégration. La base de données contient déjà toutes les tables nécessaires (`modules_roi`, `parametres_roi`, `soumissions`, `soumission_roi`, `soumission_roi_modules`, `audit_log`, `utilisateurs`), avec les 8 modules ROI et leurs 22 paramètres correctement peuplés.
+Le formulaire `Calculateur.tsx` possède déjà un champ "Notes internes" (variable `notes`, stocké dans `notes_internes`). Il faut ajouter un **deuxième champ distinct** : `notes_personnalisees`, visible dans le PDF et en mode présentation (les notes internes restent confidentielles, côté équipe seulement).
 
-Ce qui reste à construire : le **calculateur ROI**, la **gestion des soumissions**, la **génération PDF**, et les **pages d'administration**.
-
----
-
-## Phase 1 — Calculateur ROI (Section 4)
-
-### Emplacement : section 5 de `src/pages/Calculateur.tsx`
-
-Une nouvelle section accordéon s'ajoutera sous les rabais et les notes internes, avant les boutons d'action.
-
-### Données d'entrée communes (10 champs)
-
-```text
-Nombre d'établissements    → lu depuis etablissements.length (automatique)
-Budget alimentaire annuel  → saisie manuelle
-Coûts d'approvisionnement  → saisie manuelle
-Nb employés cuisine        → saisie manuelle
-Nb responsables commandes  → saisie manuelle
-Nb employés total          → saisie manuelle
-Taux horaire cuisine       → saisie manuelle
-Taux horaire admin         → saisie manuelle
-Taux horaire comptabilité  → saisie manuelle
-Coût gestion déchets       → saisie manuelle
-```
-
-### Formules ROI (implémentées en TypeScript pur, paramètres lus depuis `parametres_roi`)
-
-| Module | Économie annuelle calculée |
-|--------|---------------------------|
-| Thermomètres | saisie_moy×12 + budget×0.0075 + déchets×0.15 + 480 |
-| Produits & Recettes | budget×0.125 + nbCuisine×25×tauxCuisine + 50×tauxCuisine |
-| Gestion Inventaires | 950×12×nbEtab + appro×0.075 |
-| Inventaires temps réel | (300+100)×12×nbEtab + 4×tauxAdmin×12×nbEtab |
-| Facturation | 65×tauxCompta |
-| Paniers | nbResponsables×50×tauxAdmin |
-| RH | 72×tauxAdmin + 12×tauxCompta |
-| Tâches répétitives | 3.5×52×tauxAdmin (moyenne 2–5h/sem) |
-
-La constante `cout_octogone_mensuel_par_etablissement` (299 $/mois, déjà en `config`) est utilisée pour le coût Octogone ROI — **distinct** du prix calculé de la soumission.
-
-### Affichage des résultats
-
-- Tableau par module sélectionné : économie mensuelle | économie annuelle
-- 5 métriques cards : Économies totales / Coût Octogone / Bénéfice net / ROI (x) / Retour en mois
-- Graphique Recharts barres horizontales : économies par module vs coût Octogone
+La table `soumissions` n'a pas encore la colonne `notes_personnalisees` — c'est la seule migration nécessaire.
 
 ---
 
-## Phase 2 — Gestion des soumissions (Section 5)
+## Périmètre des changements
 
-### Nouveaux fichiers et pages
-
-**`src/pages/Soumissions.tsx`** — Liste complète (remplace le placeholder actuel)
-- Tableau avec : numéro, client, segment(s), total mensuel, statut, date, actions
-- Recherche texte (nom client, numéro)
-- Filtre par statut (badges colorés : brouillon/envoyée/acceptée/expirée)
-- Tri par colonne cliquable
-- Pagination 20/page
-- Actions : voir détail, dupliquer, changer statut, supprimer (avec confirmation)
-- Export CSV
-
-**`src/pages/SoumissionDetail.tsx`** — `/soumissions/:id`
-- Vue complète de la soumission (lecture seule + actions)
-- Section tarifaire + section ROI si disponible
-- Boutons : modifier, dupliquer, changer statut, générer PDF
-
-**`src/pages/SoumissionPresentation.tsx`** — `/soumissions/:id/presentation`
-- Mode plein écran, sans sidebar, sans contrôles d'édition
-- Affichage pour rencontre client
-
-### Fonctions backend ajoutées à `src/lib/supabase-queries.ts`
-
-```text
-fetchSoumissions(filtres)        → liste paginée
-fetchSoumissionById(id)          → détail complet avec établissements et rabais
-dupliquerSoumission(id)          → copie avec nouveau numéro et parent_id
-changerStatut(id, statut)        → mise à jour statut
-supprimerSoumission(id)          → soft delete ou delete
-exporterCSV(filtres)             → génération CSV côté client
-```
-
-### Nouveaux champs dans `sauvegarderSoumission`
-
-La fonction actuelle sera étendue pour supporter la sauvegarde optionnelle des données ROI (`soumission_roi` + `soumission_roi_modules`) dans la même transaction.
-
-### Statuts avec couleurs
-
-| Statut | Couleur |
-|--------|---------|
-| brouillon | gris |
-| envoyée | bleu |
-| acceptée | vert |
-| expirée | rouge |
-
----
-
-## Phase 3 — Génération PDF (Section 6)
-
-La génération PDF se fera **côté client** en utilisant `window.print()` avec une feuille de style CSS `@media print` dédiée — sans dépendance externe lourde, compatible avec tous les navigateurs.
-
-**Structure `src/components/pdf/SoumissionPDF.tsx`**
-- Composant React rendu dans un `<div id="pdf-content">` caché
-- CSS print avec mise en page A4, polices, marges
-- Sections : en-tête / infos client / tableau établissements / rabais / totaux / ROI (si présent) / conditions / pied de page
-
-Le bouton "Générer le PDF" dans le calculateur déclenchera `window.print()` sur ce composant.
-
----
-
-## Phase 4 — Pages d'administration (Section 7)
-
-### Nouvelles routes à ajouter dans `App.tsx`
-
-```text
-/admin/tarification    → Segments + paliers + frais intégration
-/admin/rabais          → Gestion des rabais
-/admin/roi             → Paramètres ROI
-/admin/soumissions     → Config PDF, validité, conditions
-/admin/utilisateurs    → Gestion utilisateurs
-/admin/historique      → Journal audit log
-```
-
-### `src/pages/admin/Tarification.tsx`
-
-- Tableau éditable des segments (prix unitaire, minimum mensuel, toggle actif)
-- Section paliers restaurants (ajout/modif/suppression de lignes)
-- Champ frais d'intégration (depuis `config`)
-- Chaque modification écrit dans `audit_log`
-
-### `src/pages/admin/Rabais.tsx`
-
-- Liste des rabais avec toggle actif/inactif
-- Édition du pourcentage en ligne
-- Bouton "Ajouter un rabais temporaire"
-- Chaque modification écrit dans `audit_log`
-
-### `src/pages/admin/Roi.tsx`
-
-- Tableau éditable de tous les `parametres_roi` groupés par module
-- Édition de la valeur en ligne avec validation numérique
-- Champ coût Octogone par défaut (depuis `config`)
-
-### `src/pages/admin/ConfigSoumissions.tsx`
-
-- Durée de validité (jours)
-- Texte des conditions générales (textarea)
-- Nom de l'entreprise sur le PDF
-
-### `src/pages/admin/Utilisateurs.tsx`
-
-- Tableau des utilisateurs de la table `utilisateurs`
-- Ajout / désactivation (toggle actif)
-- Rôle : vendeur / admin
-
-### `src/pages/admin/Historique.tsx`
-
-- Journal chronologique de `audit_log`
-- Filtres : utilisateur, table modifiée, date (plage)
-- Tableau avec : qui / quand / quoi / ancienne valeur / nouvelle valeur
-- Bouton "Rollback" par ligne (restaure l'ancienne valeur)
-- Bouton "Réinitialiser tout" avec confirmation modale
-
----
-
-## Phase 5 — Navigation et routes
-
-### Modifications dans `App.tsx`
-
-Ajout des routes imbriquées pour admin et soumissions :
-
-```text
-/soumissions/:id                 → SoumissionDetail
-/soumissions/:id/presentation    → SoumissionPresentation
-/admin/tarification              → AdminTarification
-/admin/rabais                    → AdminRabais
-/admin/roi                       → AdminRoi
-/admin/soumissions               → AdminConfigSoumissions
-/admin/utilisateurs              → AdminUtilisateurs
-/admin/historique                → AdminHistorique
-```
-
----
-
-## Phase 6 — Authentification et rôles (Section 8)
-
-L'authentification actuelle (code d'accès en localStorage) sera **conservée pour la connexion**, mais les rôles seront gérés via la table `utilisateurs` existante.
-
-Une fonction `getCurrentUser()` sera ajoutée pour identifier l'utilisateur connecté (par email stocké dans la session) et déterminer son rôle (`vendeur` ou `admin`). Les routes `/admin/*` vérifieront le rôle admin avant d'afficher le contenu.
-
-Note : la table `utilisateurs` n'utilise pas l'auth Supabase native — elle est autonome, ce qui correspond à l'approche actuelle "code d'accès simple" sans inscription.
-
----
-
-## Ordre d'implémentation
-
-```text
-Étape 1  →  Calculateur ROI (section 5 de Calculateur.tsx) + lib/roi-calc.ts
-Étape 2  →  Extension sauvegarderSoumission (ROI + multi-segments)
-Étape 3  →  Page Soumissions (liste) + SoumissionDetail
-Étape 4  →  Génération PDF (composant + bouton)
-Étape 5  →  Routes admin + pages admin (Tarification, Rabais, ROI, Config)
-Étape 6  →  Historique audit log + Utilisateurs
-Étape 7  →  Mode présentation + export CSV
-```
-
----
-
-## Fichiers créés / modifiés
-
-| Fichier | Action |
+| Fichier | Nature |
 |---------|--------|
-| `src/lib/roi-calc.ts` | Nouveau — fonctions de calcul ROI |
-| `src/lib/supabase-queries.ts` | Étendu — fetchSoumissions, dupliquer, etc. |
-| `src/pages/Calculateur.tsx` | Étendu — section ROI accordéon |
-| `src/pages/Soumissions.tsx` | Remplacé — liste complète |
-| `src/pages/SoumissionDetail.tsx` | Nouveau |
-| `src/pages/SoumissionPresentation.tsx` | Nouveau |
-| `src/components/pdf/SoumissionPDF.tsx` | Nouveau |
-| `src/pages/admin/Tarification.tsx` | Nouveau |
-| `src/pages/admin/Rabais.tsx` | Nouveau |
-| `src/pages/admin/Roi.tsx` | Nouveau |
-| `src/pages/admin/ConfigSoumissions.tsx` | Nouveau |
-| `src/pages/admin/Utilisateurs.tsx` | Nouveau |
-| `src/pages/admin/Historique.tsx` | Nouveau |
-| `src/App.tsx` | Étendu — nouvelles routes |
+| Base de données | Migration : ajout colonne `notes_personnalisees TEXT DEFAULT NULL` |
+| `src/pages/Calculateur.tsx` | Nouveau champ Textarea dans un Collapsible |
+| `src/lib/supabase-queries.ts` | Passage de `notes_personnalisees` dans `sauvegarderSoumission` et `dupliquerSoumission` |
+| `src/components/pdf/SoumissionPDF.tsx` | Section "Notes importantes" conditionnelle avant Conditions |
+| `src/pages/SoumissionPresentation.tsx` | Encadré discret avec icône ℹ️ après les totaux |
 
-**Aucune migration de base de données requise** — toutes les tables nécessaires existent déjà.
+---
+
+## Détail technique par fichier
+
+### 1. Migration base de données
+
+```sql
+ALTER TABLE soumissions
+  ADD COLUMN notes_personnalisees TEXT DEFAULT NULL;
+```
+
+Colonne nullable, aucune valeur par défaut, compatible avec toutes les soumissions existantes.
+
+### 2. `src/pages/Calculateur.tsx`
+
+**Nouvel état :** `const [notesPerso, setNotesPerso] = useState('');`
+
+**Nouvelle section UI** — insérée **après la section ROI et avant les boutons d'action** (ligne ~722) :
+
+```text
+Card "6. Notes et conditions spéciales"
+  └── Collapsible (ouvert si notesPerso.trim() non vide)
+       └── CollapsibleTrigger (label + chevron)
+       └── CollapsibleContent
+            └── Label "Notes personnalisées (apparaîtront sur la soumission)"
+            └── Textarea
+                 placeholder="Ex. : Le rabais volume de 10 % s'applique si..."
+                 min-h: 4 lignes (min-h-[96px])
+                 resize: vertical
+```
+
+**Imports à ajouter :** `Collapsible`, `CollapsibleTrigger`, `CollapsibleContent` depuis `@/components/ui/collapsible` ; `Textarea` depuis `@/components/ui/textarea`.
+
+**Dans `handleSauvegarder`** : passer `notesPersonnalisees: notesPerso.trim()` à `sauvegarderSoumission`.
+
+**Raccourci Ctrl+S** : ajouter `notesPerso` aux dépendances du `useEffect`.
+
+### 3. `src/lib/supabase-queries.ts`
+
+**Dans `sauvegarderSoumission`** :
+- Ajouter `notesPersonnalisees: string` dans le type des `params`
+- Passer `notes_personnalisees: params.notesPersonnalisees` dans l'insert Supabase
+
+**Dans `dupliquerSoumission`** :
+- Copier `notes_personnalisees: soumission.notes_personnalisees` dans l'insert de la nouvelle soumission (préservation lors de la duplication)
+
+### 4. `src/components/pdf/SoumissionPDF.tsx`
+
+**Logique** : lire `soumission.notes_personnalisees`, faire `.trim()`, et si non vide, splitter par `\n` pour créer les bullet points.
+
+**Position dans le PDF** : entre le bloc Totaux (ligne ~168) et la section Conditions (ligne ~224).
+
+```text
+{/* Notes importantes */}
+{notesPerso && notesPerso.length > 0 && (
+  <div className="pdf-no-break" style={{ marginBottom: 24 }}>
+    <div style={{ titre "Notes importantes", couleur #1e3a5f }} />
+    <div style={{ fond #fffbeb, bordure gauche #f59e0b, padding 12-16, borderRadius 8 }}>
+      {lignes.map(ligne => (
+        <div>• {ligne}</div>
+      ))}
+    </div>
+  </div>
+)}
+```
+
+Pas besoin de modifier les props du composant — `soumission` est déjà passé et contiendra automatiquement `notes_personnalisees` une fois la colonne ajoutée (type généré depuis la DB).
+
+### 5. `src/pages/SoumissionPresentation.tsx`
+
+**Position** : après les cartes totaux (ligne ~129), avant la section Rabais (ligne ~131).
+
+```text
+{soumission.notes_personnalisees?.trim() && (
+  <div style={{ fond gris clair, padding 16-20, borderRadius 16, border }}>
+    <div className="flex items-center gap-2 mb-2">
+      <span>ℹ️</span>
+      <h4 className="font-semibold text-sm" style={{ couleur sidebar-foreground }}>Notes</h4>
+    </div>
+    {lignes.map(ligne => (
+      <p style={{ fontStyle: italic, fontSize: 0.875rem, couleur sidebar-foreground/70 }}>• {ligne}</p>
+    ))}
+  </div>
+)}
+```
+
+---
+
+## Ordre d'exécution
+
+```text
+Étape 1 → Migration DB (colonne notes_personnalisees)
+Étape 2 → supabase-queries.ts (sauvegarder + dupliquer)
+Étape 3 → Calculateur.tsx (état + UI Collapsible + handler)
+Étape 4 → SoumissionPDF.tsx (section Notes importantes)
+Étape 5 → SoumissionPresentation.tsx (encadré discret)
+```
+
+---
+
+## Edge cases couverts
+
+- Espaces seuls → `trim()` avant sauvegarde et avant affichage → traité comme vide
+- Retours à la ligne → `split('\n').filter(Boolean)` → bullet points propres
+- Accents et guillemets français → passent nativement (UTF-8, pas d'encodage spécial)
+- Long texte (500+ chars) → `word-wrap: break-word` dans le CSS print, retour automatique
+- Soumission sans notes → section absente du PDF et de la présentation
+- Duplication → notes copiées dans la nouvelle soumission
