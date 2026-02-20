@@ -1,4 +1,5 @@
 import { useEffect } from 'react';
+import { createPortal } from 'react-dom';
 import { formatMontant, formatDate } from '@/lib/format';
 import { Soumission, SoumissionEtablissement, Rabais, SoumissionOption } from '@/lib/supabase-queries';
 import { Database } from '@/integrations/supabase/types';
@@ -116,30 +117,27 @@ const SoumissionPDF = ({ soumission, etablissements, rabais, roi, roiModules, op
     style.id = 'pdf-print-style';
     style.textContent = `
       @media print {
-        /* Masquer tout le body sauf le wrapper PDF via visibility */
-        body * { visibility: hidden !important; }
+        /* Cacher toute l'interface React */
+        #root { display: none !important; }
+        body > *:not(#pdf-content) { display: none !important; }
 
-        /* Rendre visible le contenu PDF */
-        #pdf-content-wrapper,
-        #pdf-content-wrapper * { visibility: visible !important; }
-
-        /* Positionner le wrapper en haut à gauche, laissant le flux naturel */
-        #pdf-content-wrapper {
-          position: absolute !important;
+        /* Le PDF prend toute la page, flux naturel = multi-page */
+        #pdf-content {
+          display: block !important;
+          position: static !important;
           left: 0 !important;
           top: 0 !important;
           width: 100% !important;
           height: auto !important;
           overflow: visible !important;
+          background: white !important;
+          z-index: 99999 !important;
+          padding: 0 !important;
+          margin: 0 !important;
         }
 
-        /* Le conteneur principal du PDF : flux naturel, hauteur auto */
-        #pdf-content {
-          position: static !important;
-          width: 100% !important;
-          height: auto !important;
-          overflow: visible !important;
-          background: white !important;
+        #pdf-content * {
+          visibility: visible !important;
         }
 
         /* Paramètres de page A4 */
@@ -196,12 +194,14 @@ const SoumissionPDF = ({ soumission, etablissements, rabais, roi, roiModules, op
   const beneficeNetMens = economiesTotalesMens - totalMensuel;
   const beneficePositif = beneficeNetAnn >= 0;
 
-  return (
-    <div id="pdf-content-wrapper" style={{ position: 'absolute', left: '-9999px', top: 0, width: '210mm' }}>
+  return createPortal(
     <div
       id="pdf-content"
       style={{
-        width: '100%',
+        position: 'absolute',
+        left: '-9999px',
+        top: 0,
+        width: '210mm',
         fontFamily: 'system-ui, -apple-system, sans-serif',
         color: P.dark,
         fontSize: '11pt',
@@ -667,8 +667,8 @@ const SoumissionPDF = ({ soumission, etablissements, rabais, roi, roiModules, op
         <span style={{ color: P.mintDark }}>{soumission.numero}</span>
         <span>Confidentiel</span>
       </div>
-    </div>
-    </div>
+    </div>,
+    document.body
   );
 };
 
