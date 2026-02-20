@@ -1,144 +1,88 @@
 
-## Correction critique du PDF — Multi-page garanti via createPortal
+## Correction du flux reset-password — Double listener et session non détectée
 
 ### Diagnostic précis
 
-Le `#pdf-content-wrapper` est rendu dans l'arbre DOM suivant :
+L'architecture actuelle crée un conflit entre deux composants qui écoutent simultanément les events d'authentification :
+
 ```text
-<body>
-  <div id="root">          ← géré par React
-    ...
-    <div id="pdf-content-wrapper" style="left: -9999px">
-      <div id="pdf-content">
-        ...tout le contenu PDF...
-      </div>
-    </div>
-  </div>
-</body>
+1. Utilisateur clique le lien email
+   → Supabase charge la page racine avec #access_token=...&type=recovery dans le hash
+   → AuthRedirect.tsx déclenche sur PASSWORD_RECOVERY → navigue vers /reset-password
+
+2. ResetPassword.tsx monte
+   → Crée un NOUVEAU onAuthStateChange listener
+   → Appelle getSession() → mais le hash a disparu après la redirection interne
+   → PASSWORD_RECOVERY ne se redéclenche PAS (event déjà consommé)
+   → getSession() retourne une session mais sans context recovery dans le hash
+   → Après 1500ms : setVerificationSession(false), sessionValide reste false
+   → Affiche "Lien invalide ou expiré" ❌
 ```
 
-Le CSS d'impression actuel fait `body * { visibility: hidden }` puis repositionne `#pdf-content-wrapper` en `position: absolute; left: 0; top: 0`. Le problème : un élément `position: absolute` ne crée pas de hauteur de document — le navigateur imprime exactement 1 page (la hauteur du viewport) et tronque le reste.
+Le problème central : `AuthRedirect` consomme l'event `PASSWORD_RECOVERY` en naviguant vers `/reset-password`. Quand `ResetPassword` monte, cet event ne se produit plus. La vérification du hash `type=recovery` dans l'URL est aussi inutile car la navigation React a effacé le hash.
 
-### Solution : createPortal
+### Solution en 2 fichiers
 
-En utilisant `createPortal`, on déplace le rendu PDF directement dans `<body>`, hors de `#root` :
-```text
-<body>
-  <div id="root">...interface...</div>     ← on cache ça en print
-  <div id="pdf-content" style="left: -9999px">  ← rendu direct dans body
-    ...tout le contenu PDF...
-  </div>
-</body>
-```
+#### 1. `src/components/AuthRedirect.tsx` — Transmettre le contexte recovery à la navigation
 
-Ainsi, le CSS d'impression peut simplement faire :
-- `#root { display: none !important }` — cache toute l'interface
-- `#pdf-content { position: static; height: auto; overflow: visible }` — laisse le contenu s'étaler naturellement sur N pages
+Au lieu de juste naviguer vers `/reset-password`, passer un state de navigation pour signaler que l'event recovery a bien eu lieu :
 
-### Fichier modifié
-
-**`src/components/pdf/SoumissionPDF.tsx`** — 3 changements précis :
-
-**1. Import de `createPortal`**
-Ajouter `ReactDOM` (ou `createPortal`) depuis `react-dom`.
-
-**2. Nouveau CSS d'impression dans le `useEffect`**
-
-Remplacer le bloc CSS actuel par :
-```css
-@media print {
-  /* Cacher toute l'interface React */
-  #root { display: none !important; }
-
-  /* Le PDF prend toute la page, flux naturel = multi-page */
-  #pdf-content {
-    display: block !important;
-    position: static !important;
-    left: 0 !important;
-    top: 0 !important;
-    width: 100% !important;
-    height: auto !important;
-    overflow: visible !important;
-    background: white !important;
-    z-index: 99999 !important;
-  }
-
-  #pdf-content * {
-    visibility: visible !important;
-  }
-
-  @page { size: A4; margin: 18mm 15mm; }
-
-  .pdf-no-break {
-    page-break-inside: avoid !important;
-    break-inside: avoid !important;
-  }
-  .pdf-page-break {
-    page-break-before: always !important;
-    break-before: always !important;
-  }
-  .pdf-signature-block {
-    page-break-inside: avoid !important;
-    break-inside: avoid !important;
-  }
-}
-```
-
-**3. Structure JSX : supprimer le wrapper, utiliser createPortal**
-
-Avant :
 ```tsx
-return (
-  <div id="pdf-content-wrapper" style={{ position: 'absolute', left: '-9999px', top: 0, width: '210mm' }}>
-    <div id="pdf-content" style={{ width: '100%', ... }}>
-      ...contenu...
-    </div>
-  </div>
-);
+navigate('/reset-password', { replace: true, state: { fromRecovery: true } });
 ```
 
-Après :
+#### 2. `src/pages/ResetPassword.tsx` — Lire le state de navigation en priorité
+
+Utiliser `useLocation()` de react-router-dom pour lire `state.fromRecovery`. Si ce flag est présent, la session est valide immédiatement, sans attendre un event ou un timeout :
+
 ```tsx
-import { createPortal } from 'react-dom';
+const location = useLocation();
 
-// Dans le return :
-return createPortal(
-  <div
-    id="pdf-content"
-    style={{
-      position: 'absolute',
-      left: '-9999px',
-      top: 0,
-      width: '210mm',
-      fontFamily: 'system-ui, -apple-system, sans-serif',
-      color: P.dark,
-      fontSize: '11pt',
-      lineHeight: '1.5',
-      background: P.white,
-    }}
-  >
-    ...tout le contenu PDF identique...
-  </div>,
-  document.body
-);
+useEffect(() => {
+  // Cas 1 : on arrive depuis AuthRedirect avec le flag recovery → valide immédiatement
+  if (location.state?.fromRecovery) {
+    setSessionValide(true);
+    setVerificationSession(false);
+    return; // pas besoin d'attendre
+  }
+
+  // Cas 2 : arrivée directe sur /reset-password (ex: rechargement de page)
+  // Vérifier s'il y a une session active avec getSession()
+  let mounted = true;
+  const verifier = async () => {
+    const { data: { session } } = await supabase.auth.getSession();
+    if (session && mounted) {
+      setSessionValide(true);
+    }
+    if (mounted) setVerificationSession(false);
+  };
+  verifier();
+
+  return () => { mounted = false; };
+}, [location.state]);
 ```
 
-Le `#pdf-content` est maintenant un enfant direct de `<body>`, hors de `#root`. En mode normal, il est caché à `left: -9999px`. En mode impression, le CSS le repositionne en `position: static` et cache `#root` via `display: none`.
+### Fichiers modifiés
+
+| Fichier | Changement |
+|---------|-----------|
+| `src/components/AuthRedirect.tsx` | Ajouter `state: { fromRecovery: true }` à la navigation |
+| `src/pages/ResetPassword.tsx` | Lire `location.state.fromRecovery` via `useLocation()` pour valider la session immédiatement; garder `getSession()` comme fallback pour les rechargements de page |
 
 ### Ce qui ne change PAS
 
-- Tout le contenu HTML du PDF (cartes, tableaux, verdict, signature) reste identique
-- La palette de couleurs Octogone reste identique
-- Les noms des modules ROI affichent déjà correctement leurs vrais noms (`modules_roi?.nom`) — pas de bug à corriger
-- `supabase-queries.ts` a déjà le bon join SQL — pas de changement nécessaire
-- `triggerPrint()` reste `window.print()` — aucun changement
+- La structure du formulaire (UI identique)
+- Le flux `handleSubmit` avec `supabase.auth.updateUser`
+- `App.tsx` (aucun changement nécessaire)
+- `ForgotPassword.tsx` (aucun changement nécessaire)
+- La configuration `redirectTo` dans `resetPasswordForEmail`
 
-### Tests de validation
+### Comportements couverts
 
-1. Ctrl+P affiche 2-3 pages (le contenu complet déborde sur plusieurs pages)
-2. Le tableau des établissements est visible
-3. Les 3 cartes récapitulatives (Mensuel / Annuel / 1re année) sont présentes
-4. Le bloc ROI et le verdict sont visibles (si activé)
-5. Les conditions générales et le bloc signature apparaissent sur la dernière page, non coupés
-6. Les noms des modules ROI sont corrects (pas "Module 1")
-7. "Intégration offerte — multi-sites ✓" s'affiche correctement dans la carte 1re année
+1. **Flux normal** : clic email → `AuthRedirect` détecte `PASSWORD_RECOVERY` → navigue avec `fromRecovery: true` → `ResetPassword` valide immédiatement → formulaire affiché ✅
+2. **Rechargement de page sur `/reset-password`** : pas de `fromRecovery`, `getSession()` vérifie s'il reste une session active → formulaire ou message d'expiration ✅
+3. **Accès direct non autorisé** : pas de `fromRecovery`, pas de session → "Lien invalide ou expiré" ✅
+
+### Note sur la configuration Lovable Cloud
+
+Le `redirectTo` dans `ForgotPassword.tsx` est déjà correctement configuré à `${window.location.origin}/reset-password`. Pour que Supabase accepte cette URL, il faut s'assurer que l'URL du projet est dans la liste des Redirect URLs autorisées dans les paramètres d'authentification. Si les tests échouent encore après ce correctif côté code, l'administrateur devra vérifier cette configuration dans les paramètres du backend (Authentication → URL Configuration).
