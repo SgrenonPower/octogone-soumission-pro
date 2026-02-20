@@ -24,21 +24,33 @@ const ResetPassword = () => {
 
     const verifier = async () => {
       // 1. Écouter l'event PASSWORD_RECOVERY (arrive si le hash vient d'être traité)
-      const { data: { subscription } } = supabase.auth.onAuthStateChange((event) => {
+      const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
         if (event === 'PASSWORD_RECOVERY' && mounted) {
           setSessionValide(true);
           setVerificationSession(false);
         }
+        // Si l'utilisateur se connecte normalement sur cette page → rediriger
+        if (event === 'SIGNED_IN' && mounted) {
+          // SIGNED_IN sans PASSWORD_RECOVERY = accès direct non autorisé
+          // On laisse le délai expirer et sessionValide restera false
+        }
       });
       sub = subscription;
 
-      // 2. Vérifier s'il y a déjà une session active (l'event peut avoir déjà été émis)
-      const { data: { session } } = await supabase.auth.getSession();
-      if (session && mounted) {
-        setSessionValide(true);
+      // 2. Vérifier si le hash contient type=recovery (lien cliqué depuis l'email)
+      const hash = window.location.hash;
+      const params = new URLSearchParams(hash.replace('#', ''));
+      const typeParam = params.get('type');
+
+      if (typeParam === 'recovery') {
+        // Le hash contient le token de recovery → valider la session
+        const { data: { session } } = await supabase.auth.getSession();
+        if (session && mounted) {
+          setSessionValide(true);
+        }
       }
 
-      // 3. Délai de sécurité pour laisser le temps aux events d'arriver
+      // 3. Délai de sécurité pour laisser le temps aux events PASSWORD_RECOVERY d'arriver
       setTimeout(() => {
         if (mounted) setVerificationSession(false);
       }, 1500);
