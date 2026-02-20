@@ -764,6 +764,8 @@ const Calculateur = () => {
                 <Select
                   value={rabaisDropdown.type}
                   onValueChange={(v: RabaisDropdownState['type']) => {
+                    // Réinitialiser fraisOfferts si on quitte multi-sites
+                    if (v !== 'multi-sites') setFraisOfferts(false);
                     setRabaisDropdown(prev => ({
                       ...prev,
                       type: v,
@@ -855,12 +857,15 @@ const Calculateur = () => {
                 </div>
               )}
 
-              {/* Toggle frais d'intégration offerts — visible si pilote activé */}
-              {rabaisState.pilote && (
+              {/* Toggle frais d'intégration offerts — visible si pilote OU multi-sites */}
+              {(rabaisState.pilote || rabaisDropdown.type === 'multi-sites') && (
                 <div className="flex items-center justify-between p-3 rounded-lg border border-dashed"
                   style={{ borderColor: 'hsl(38 92% 50%)', background: 'hsl(38 92% 50% / 0.05)' }}>
                   <div>
-                    <p className="text-sm font-medium">Frais d'intégration offerts (projet pilote)</p>
+                    <p className="text-sm font-medium">
+                      Frais d'intégration offerts
+                      {rabaisState.pilote ? ' (projet pilote)' : ' (multi-sites)'}
+                    </p>
                     <p className="text-xs text-muted-foreground">
                       Valeur : {formatMontant(fraisIntegration)} — offerts à 0 $
                     </p>
@@ -1344,7 +1349,7 @@ const Calculateur = () => {
               {(fraisOfferts || estRqra) && (
                 <div className="flex justify-between text-xs">
                   <span style={{ color: 'hsl(var(--success))' }}>
-                    ↳ Offerts {estRqra ? '(RQRA)' : '(projet pilote)'}
+                    ↳ Offerts {estRqra ? '(RQRA)' : rabaisDropdown.type === 'multi-sites' ? '(multi-sites)' : '(projet pilote)'}
                   </span>
                   <span style={{ color: 'hsl(var(--success))' }}>0,00 $</span>
                 </div>
