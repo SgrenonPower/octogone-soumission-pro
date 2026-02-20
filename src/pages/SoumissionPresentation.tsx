@@ -127,6 +127,11 @@ const SoumissionPresentation = () => {
             </div>
           ))}
         </div>
+        {(soumission as any).frais_integration_offerts && (
+          <p className="text-xs text-center -mt-3" style={{ color: '#059669', fontStyle: 'italic' }}>
+            ✓ Frais d'intégration offerts — projet pilote
+          </p>
+        )}
 
         {/* Notes personnalisées */}
         {(() => {

@@ -45,6 +45,7 @@ const SoumissionPDF = ({ soumission, etablissements, rabais, roi, roiModules }: 
   const totalMensuel = Number(soumission.total_mensuel || 0);
   const totalAnnuel = Number(soumission.total_annuel || 0);
   const fraisInt = Number(soumission.frais_integration || 0);
+  const fraisOfferts = (soumission as any).frais_integration_offerts ?? false;
   const coutAn1 = Number(soumission.cout_total_an1 || 0);
 
   const modulesSelectionnes = roiModules.filter(m => m.selectionne);
@@ -155,10 +156,27 @@ const SoumissionPDF = ({ soumission, etablissements, rabais, roi, roiModules }: 
               <td style={{ padding: '8px 12px', color: '#6b7280' }}>Total annuel (×12)</td>
               <td style={{ padding: '8px 12px', textAlign: 'right', fontWeight: 600 }}>{formatMontant(totalAnnuel)}</td>
             </tr>
-            <tr style={{ borderBottom: '1px solid #e5e7eb' }}>
-              <td style={{ padding: '8px 12px', color: '#6b7280' }}>Frais d'intégration ({etablissements.length} étab. × 3 000 $)</td>
-              <td style={{ padding: '8px 12px', textAlign: 'right', fontWeight: 600 }}>{formatMontant(fraisInt)}</td>
-            </tr>
+            {fraisOfferts ? (
+              <tr style={{ borderBottom: '1px solid #e5e7eb' }}>
+                <td style={{ padding: '8px 12px', color: '#6b7280' }}>
+                  Frais d'intégration
+                  <span style={{ fontSize: '9pt', marginLeft: 8, color: '#9ca3af' }}>
+                    (valeur {formatMontant(fraisInt)})
+                  </span>
+                </td>
+                <td style={{ padding: '8px 12px', textAlign: 'right' }}>
+                  <span style={{ textDecoration: 'line-through', color: '#9ca3af', marginRight: 8 }}>
+                    {formatMontant(fraisInt)}
+                  </span>
+                  <span style={{ color: '#059669', fontWeight: 700 }}>0,00 $ (gratuit – projet pilote)</span>
+                </td>
+              </tr>
+            ) : (
+              <tr style={{ borderBottom: '1px solid #e5e7eb' }}>
+                <td style={{ padding: '8px 12px', color: '#6b7280' }}>Frais d'intégration ({etablissements.length} étab. × 3 000 $)</td>
+                <td style={{ padding: '8px 12px', textAlign: 'right', fontWeight: 600 }}>{formatMontant(fraisInt)}</td>
+              </tr>
+            )}
             <tr style={{ background: '#1e3a5f', color: 'white' }}>
               <td style={{ padding: '10px 12px', fontWeight: 700, fontSize: '11pt' }}>Coût total 1re année</td>
               <td style={{ padding: '10px 12px', textAlign: 'right', fontWeight: 800, fontSize: '13pt' }}>{formatMontant(coutAn1)}</td>

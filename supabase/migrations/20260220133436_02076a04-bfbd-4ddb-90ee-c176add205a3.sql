@@ -1,0 +1,1 @@
+ALTER TABLE soumissions ADD COLUMN frais_integration_offerts BOOLEAN DEFAULT FALSE;
