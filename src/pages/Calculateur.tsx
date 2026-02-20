@@ -25,6 +25,8 @@ import {
   fetchConfig,
   fetchModulesRoi,
   fetchParametresRoi,
+  fetchModulesProduit,
+  fetchPrixModulesProduit,
   genererNumero,
   sauvegarderSoumission,
   Segment,
@@ -32,6 +34,8 @@ import {
   Rabais as RabaisType,
   ModuleRoi,
   ParametreRoi,
+  ModuleProduit,
+  PrixModuleProduit,
 } from '@/lib/supabase-queries';
 import { calculerROI, DonneesROI, ResultatROI } from '@/lib/roi-calc';
 import { Plus, Trash2, Save, FileDown, AlertCircle, Building2, TrendingUp, ChevronDown, ChevronRight } from 'lucide-react';
@@ -65,15 +69,13 @@ interface OptionSupplementaire {
 }
 
 interface RabaisDropdownState {
-  type: 'aucun' | 'multi-sites' | 'volume' | 'personnalise';
+  type: 'aucun' | 'multi-sites' | 'personnalise';
   pourcentage: number;
   description: string;
 }
 
-
 const NOM_TYPE_RABAIS: Record<string, string> = {
   'multi-sites': 'Multi-sites',
-  'volume': 'Volume',
   'personnalise': 'Rabais personnalisé',
 };
 
@@ -81,6 +83,17 @@ interface RabaisState {
   engagement: boolean;
   pilote: boolean;
 }
+
+// ============================================================
+// Helper : rabais volume automatique
+// ============================================================
+
+const calculerRabaisVolume = (nbUnites: number): number => {
+  if (nbUnites >= 1000) return 15;
+  if (nbUnites >= 500) return 10;
+  if (nbUnites >= 300) return 5;
+  return 0;
+};
 
 // ============================================================
 // Calcul du prix
@@ -93,39 +106,60 @@ const calculerPrixEtablissement = (
   rabais: RabaisType[],
   rabaisState: RabaisState,
   rabaisDropdown: RabaisDropdownState,
-): { prixBrut: number; prixFinal: number } => {
-  if (!segment) return { prixBrut: 0, prixFinal: 0 };
+  modulesProduitActifs: ModuleProduit[],
+  prixModules: PrixModuleProduit[],
+): { prixBrut: number; prixFinal: number; rabaisVolumePct: number } => {
+  if (!segment) return { prixBrut: 0, prixFinal: 0, rabaisVolumePct: 0 };
 
   let prixBase: number;
 
   if (segment.type_tarification === 'paliers') {
-    // Trouver le palier correspondant
     const palier = paliers.find(p =>
       etab.nombreUnites >= p.capacite_min &&
       (p.capacite_max === null || etab.nombreUnites <= p.capacite_max)
     );
     prixBase = palier ? Number(palier.tarif_mensuel) : 0;
+    // Pour les paliers, les modules s'ajoutent en forfait fixe
+    for (const mod of modulesProduitActifs) {
+      const prixMod = prixModules.find(pm =>
+        pm.segment_id === segment.id && pm.module_produit_id === mod.id
+      );
+      if (prixMod) prixBase += Number(prixMod.prix_unitaire);
+    }
   } else {
-    // Linéaire
-    const prixBrutCalc = etab.nombreUnites * Number(segment.prix_unitaire || 0);
+    // Linéaire : prix base + modules par unité
+    let prixUnitaireTotal = Number(segment.prix_unitaire || 0);
+    for (const mod of modulesProduitActifs) {
+      const prixMod = prixModules.find(pm =>
+        pm.segment_id === segment.id && pm.module_produit_id === mod.id
+      );
+      if (prixMod) prixUnitaireTotal += Number(prixMod.prix_unitaire);
+    }
+    const prixBrutCalc = etab.nombreUnites * prixUnitaireTotal;
     prixBase = Math.max(prixBrutCalc, Number(segment.minimum_mensuel || 0));
   }
 
   const prixBrut = prixBase;
   let prixFinal = prixBase;
 
-  // Couche 1 : rabais dropdown personnalisé
+  // Couche 1 : rabais volume automatique
+  const rabaisVolumePct = calculerRabaisVolume(etab.nombreUnites);
+  if (rabaisVolumePct > 0) {
+    prixFinal = prixFinal * (1 - rabaisVolumePct / 100);
+  }
+
+  // Couche 2 : rabais dropdown
   if (rabaisDropdown.type !== 'aucun' && rabaisDropdown.pourcentage > 0) {
     prixFinal = prixFinal * (1 - rabaisDropdown.pourcentage / 100);
   }
 
-  // Couche 2 : engagement annuel
+  // Couche 3 : engagement annuel
   if (rabaisState.engagement) {
     const r = rabais.find(r => r.slug === 'engagement-annuel');
     if (r) prixFinal = prixFinal * (1 - Number(r.pourcentage) / 100);
   }
 
-  // Couche 3 : pilote (seulement si cet établissement est marqué pilote)
+  // Couche 4 : pilote (seulement si cet établissement est marqué pilote)
   if (rabaisState.pilote && etab.estPilote) {
     const r = rabais.find(r => r.slug === 'projet-pilote');
     if (r) prixFinal = prixFinal * (1 - Number(r.pourcentage) / 100);
@@ -134,6 +168,7 @@ const calculerPrixEtablissement = (
   return {
     prixBrut: Math.round(prixBrut * 100) / 100,
     prixFinal: Math.round(prixFinal * 100) / 100,
+    rabaisVolumePct,
   };
 };
 
@@ -149,6 +184,8 @@ const Calculateur = () => {
   // Données depuis Supabase
   const { data: modulesRoi = [] } = useQuery({ queryKey: ['modules-roi'], queryFn: fetchModulesRoi });
   const { data: paramsRoi = [] } = useQuery({ queryKey: ['parametres-roi'], queryFn: fetchParametresRoi });
+  const { data: modulesProduit = [] } = useQuery({ queryKey: ['modules-produit'], queryFn: fetchModulesProduit });
+  const { data: prixModulesProduit = [] } = useQuery({ queryKey: ['prix-modules-produit'], queryFn: fetchPrixModulesProduit });
   const { data: segments = [], isLoading: loadingSegments } = useQuery({
     queryKey: ['segments'],
     queryFn: fetchSegments,
@@ -185,9 +222,12 @@ const Calculateur = () => {
   const [notesPerso, setNotesPerso] = useState('');
   const [textePortee, setTextePortee] = useState('');
   const [fraisOfferts, setFraisOfferts] = useState(false);
+  const [estRqra, setEstRqra] = useState(false);
   const [sauvegarde, setSauvegarde] = useState(false);
   const [roiOuvert, setRoiOuvert] = useState(false);
   const [modulesSelectionnes, setModulesSelectionnes] = useState<Set<string>>(new Set());
+  // Modules produit actifs (Interface soins, IA) — globaux pour toute la soumission
+  const [modulesProduitActifs, setModulesProduitActifs] = useState<Set<string>>(new Set());
   const [options, setOptions] = useState<OptionSupplementaire[]>([]);
   const [donneesROI, setDonneesROI] = useState<DonneesROI>({
     nbEtablissements: 1,
@@ -300,16 +340,19 @@ const Calculateur = () => {
 
   // ---- Calculs récapitulatifs ----
 
+  // Liste des modules produit actuellement actifs (objets complets)
+  const modulesProduitActifsList: ModuleProduit[] = modulesProduit.filter(m => modulesProduitActifs.has(m.id));
+
   const calculs = etablissements.map(etab => ({
     etab,
-    ...calculerPrixEtablissement(etab, segment, paliersSegment, tousLesRabais, rabaisState, rabaisDropdown),
+    ...calculerPrixEtablissement(etab, segment, paliersSegment, tousLesRabais, rabaisState, rabaisDropdown, modulesProduitActifsList, prixModulesProduit),
   }));
 
   const sousTotalMensuel = calculs.reduce((acc, c) => acc + c.prixBrut, 0);
   const totalMensuel = calculs.reduce((acc, c) => acc + c.prixFinal, 0);
   const totalAnnuel = totalMensuel * 12;
   const fraisIntegration = etablissements.length * fraisParEtab;
-  const fraisIntegrationEffectifs = fraisOfferts ? 0 : fraisIntegration;
+  const fraisIntegrationEffectifs = (fraisOfferts || estRqra) ? 0 : fraisIntegration;
   const coutTotalAn1 = totalAnnuel + fraisIntegrationEffectifs;
 
   // Rabais effectif en %
@@ -421,7 +464,8 @@ const Calculateur = () => {
         totalAnnuel,
         fraisIntegration: fraisIntegrationEffectifs,
         coutTotalAn1,
-        fraisIntegrationOfferts: fraisOfferts,
+        fraisIntegrationOfferts: fraisOfferts || estRqra,
+        estRqra,
         notesInternes: notes,
         notesPersonnalisees: notesPerso.trim(),
         textePortee: textePortee.trim() || undefined,
@@ -433,6 +477,12 @@ const Calculateur = () => {
           estPilote: c.etab.estPilote,
           prixBrut: c.prixBrut,
           prixFinal: c.prixFinal,
+          modulesProduitsActifs: modulesProduitActifsList.map(mod => {
+            const prixMod = prixModulesProduit.find(pm =>
+              segment && pm.segment_id === segment.id && pm.module_produit_id === mod.id
+            );
+            return { moduleId: mod.id, prixUnitaire: prixMod ? Number(prixMod.prix_unitaire) : 0 };
+          }),
         })),
         rabaisToggleIds: toggleRabaisIds,
         rabaisDropdown: {
@@ -507,7 +557,7 @@ const Calculateur = () => {
             <CardTitle className="text-base">1. Segment de clientèle</CardTitle>
           </CardHeader>
           <CardContent>
-            <Select value={segmentId} onValueChange={setSegmentId}>
+            <Select value={segmentId} onValueChange={v => { setSegmentId(v); setModulesProduitActifs(new Set()); }}>
               <SelectTrigger className="w-full">
                 <SelectValue placeholder="Choisissez un segment…" />
               </SelectTrigger>
@@ -533,10 +583,67 @@ const Calculateur = () => {
           </CardContent>
         </Card>
 
-        {/* Section 2 — Informations client */}
+        {/* Section 1.5 — Modules produit */}
         <Card>
           <CardHeader className="pb-3">
-            <CardTitle className="text-base">2. Informations client</CardTitle>
+            <CardTitle className="text-base">2. Modules produit (cumulatifs)</CardTitle>
+          </CardHeader>
+          <CardContent>
+            {!segmentId ? (
+              <p className="text-sm text-muted-foreground">Sélectionnez d'abord un segment.</p>
+            ) : modulesProduit.length === 0 ? (
+              <p className="text-sm text-muted-foreground">Aucun module disponible.</p>
+            ) : (
+              <div className="space-y-2">
+                {modulesProduit.map(mod => {
+                  const prixMod = prixModulesProduit.find(pm =>
+                    segment && pm.segment_id === segment.id && pm.module_produit_id === mod.id
+                  );
+                  const prixStr = prixMod
+                    ? segment?.type_tarification === 'paliers'
+                      ? `+${formatMontant(Number(prixMod.prix_unitaire))}/mois (forfait)`
+                      : `+${formatMontant(Number(prixMod.prix_unitaire))}/${segment?.unite}/mois`
+                    : 'prix non défini';
+
+                  return (
+                    <label key={mod.id} className="flex items-center gap-3 p-3 rounded-lg border cursor-pointer hover:bg-muted/30 transition-colors">
+                      <Checkbox
+                        checked={modulesProduitActifs.has(mod.id)}
+                        onCheckedChange={checked => {
+                          setModulesProduitActifs(prev => {
+                            const n = new Set(prev);
+                            if (checked) n.add(mod.id); else n.delete(mod.id);
+                            return n;
+                          });
+                        }}
+                      />
+                      <div>
+                        <span className="text-sm font-medium">{mod.nom}</span>
+                        <span className="text-xs text-muted-foreground ml-2">{prixStr}</span>
+                      </div>
+                    </label>
+                  );
+                })}
+                {modulesProduitActifs.size > 0 && segment?.type_tarification === 'lineaire' && (
+                  <div className="mt-2 p-2 rounded text-xs" style={{ background: 'hsl(var(--primary) / 0.06)', color: 'hsl(var(--primary))' }}>
+                    Prix unitaire total : {formatMontant(
+                      Number(segment?.prix_unitaire || 0) +
+                      modulesProduitActifsList.reduce((sum, m) => {
+                        const pm = prixModulesProduit.find(pm => pm.segment_id === segment?.id && pm.module_produit_id === m.id);
+                        return sum + (pm ? Number(pm.prix_unitaire) : 0);
+                      }, 0)
+                    )} / {segment?.unite}
+                  </div>
+                )}
+              </div>
+            )}
+          </CardContent>
+        </Card>
+
+        {/* Section 3 — Informations client */}
+        <Card>
+          <CardHeader className="pb-3">
+            <CardTitle className="text-base">3. Informations client</CardTitle>
           </CardHeader>
           <CardContent className="space-y-4">
             <div className="space-y-2">
@@ -551,10 +658,10 @@ const Calculateur = () => {
           </CardContent>
         </Card>
 
-        {/* Section 3 — Établissements */}
+        {/* Section 4 — Établissements */}
         <Card>
           <CardHeader className="pb-3 flex flex-row items-center justify-between">
-            <CardTitle className="text-base">3. Établissements</CardTitle>
+            <CardTitle className="text-base">4. Établissements</CardTitle>
             <Button size="sm" variant="outline" onClick={ajouterEtablissement}>
               <Plus className="h-4 w-4" />
               Ajouter
@@ -565,6 +672,7 @@ const Calculateur = () => {
               const palier = segment?.type_tarification === 'paliers'
                 ? trouverPalier(etab.nombreUnites)
                 : null;
+              const rabaisVol = calculerRabaisVolume(etab.nombreUnites);
 
               return (
                 <div key={etab.id} className="p-4 rounded-lg border space-y-3"
@@ -604,10 +712,17 @@ const Calculateur = () => {
                         onChange={e => majEtablissement(etab.id, 'nombreUnites', parseInt(e.target.value) || 0)}
                         className="h-9 text-sm"
                       />
+                      {/* Badge rabais volume automatique */}
+                      {rabaisVol > 0 && etab.nombreUnites > 0 && (
+                        <div className="flex items-center gap-1 text-xs px-2 py-0.5 rounded-full w-fit"
+                          style={{ background: 'hsl(var(--success) / 0.12)', color: 'hsl(var(--success))' }}>
+                          Rabais volume : −{rabaisVol} %
+                        </div>
+                      )}
                     </div>
                   </div>
 
-                  {/* Afficher le palier pour les restaurants */}
+                  {/* Palier restaurant */}
                   {palier && etab.nombreUnites > 0 && (
                     <div className="text-xs p-2 rounded"
                       style={{ background: 'hsl(var(--accent) / 0.1)', color: 'hsl(var(--accent))' }}>
@@ -635,15 +750,15 @@ const Calculateur = () => {
           </CardContent>
         </Card>
 
-        {/* Section 4 — Rabais */}
+        {/* Section 5 — Rabais */}
         <Card>
           <CardHeader className="pb-3">
-            <CardTitle className="text-base">4. Rabais</CardTitle>
+            <CardTitle className="text-base">5. Rabais</CardTitle>
           </CardHeader>
           <CardContent className="space-y-4">
-            {/* Rabais volumique — Select + Input % + Description */}
+            {/* Rabais multi-sites — Select + Input % + Description */}
             <div className="space-y-2">
-              <Label className="text-sm">Rabais volumique</Label>
+              <Label className="text-sm">Rabais commercial</Label>
               <div className="flex gap-2">
                 <Select
                   value={rabaisDropdown.type}
@@ -660,7 +775,6 @@ const Calculateur = () => {
                   <SelectContent>
                     <SelectItem value="aucun">Aucun</SelectItem>
                     <SelectItem value="multi-sites">Multi-sites</SelectItem>
-                    <SelectItem value="volume">Volume</SelectItem>
                     <SelectItem value="personnalise">Rabais personnalisé</SelectItem>
                   </SelectContent>
                 </Select>
@@ -689,6 +803,10 @@ const Calculateur = () => {
                   onChange={e => setRabaisDropdown(prev => ({ ...prev, description: e.target.value }))}
                 />
               )}
+              {/* Info rabais volume automatique */}
+              <p className="text-xs text-muted-foreground">
+                Les rabais volume (−5 % ≥ 300 unités, −10 % ≥ 500, −15 % ≥ 1 000) s'appliquent automatiquement par établissement.
+              </p>
             </div>
 
             {/* Toggles */}
@@ -752,6 +870,21 @@ const Calculateur = () => {
                   />
                 </div>
               )}
+
+              {/* Toggle RQRA */}
+              <div className="flex items-center justify-between p-3 rounded-lg border border-dashed"
+                style={{ borderColor: 'hsl(var(--primary) / 0.4)', background: 'hsl(var(--primary) / 0.03)' }}>
+                <div>
+                  <p className="text-sm font-medium">Client RQRA</p>
+                  <p className="text-xs text-muted-foreground">
+                    Frais d'intégration offerts automatiquement — programme RQRA
+                  </p>
+                </div>
+                <Switch
+                  checked={estRqra}
+                  onCheckedChange={setEstRqra}
+                />
+              </div>
             </div>
           </CardContent>
         </Card>
@@ -779,7 +912,7 @@ const Calculateur = () => {
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2">
                 <TrendingUp className="h-4 w-4" style={{ color: 'hsl(var(--primary))' }} />
-                <CardTitle className="text-base">5. Calculateur ROI (optionnel)</CardTitle>
+                <CardTitle className="text-base">6. Calculateur ROI (optionnel)</CardTitle>
               </div>
               <ChevronDown className={`h-4 w-4 text-muted-foreground transition-transform ${roiOuvert ? 'rotate-180' : ''}`} />
             </div>
@@ -1074,6 +1207,26 @@ const Calculateur = () => {
         </div>
 
         <div className="flex-1 p-5 space-y-4 overflow-auto">
+          {/* Modules produit actifs */}
+          {modulesProduitActifsList.length > 0 && segment && (
+            <div className="space-y-1">
+              <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Modules produit</p>
+              {modulesProduitActifsList.map(mod => {
+                const pm = prixModulesProduit.find(p => p.segment_id === segment.id && p.module_produit_id === mod.id);
+                const prix = pm ? Number(pm.prix_unitaire) : 0;
+                const totalMod = segment.type_tarification === 'paliers'
+                  ? prix
+                  : etablissements.reduce((sum, e) => sum + e.nombreUnites * prix, 0);
+                return (
+                  <div key={mod.id} className="flex justify-between text-xs">
+                    <span className="text-muted-foreground">+ {mod.nom}</span>
+                    <span>{formatMontant(totalMod)}/mois</span>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+
           {/* Par établissement */}
           {calculs.length > 0 && segment && (
             <div className="space-y-2">
@@ -1090,6 +1243,11 @@ const Calculateur = () => {
                     </span>
                     <span className="text-xs text-right text-muted-foreground">{formatMontant(c.prixFinal)}</span>
                   </div>
+                  {c.rabaisVolumePct > 0 && (
+                    <div className="text-right text-xs" style={{ color: 'hsl(var(--success))' }}>
+                      Volume −{c.rabaisVolumePct} %
+                    </div>
+                  )}
                   {c.prixBrut !== c.prixFinal && (
                     <div className="text-right">
                       <span className="text-xs line-through text-muted-foreground">{formatMontant(c.prixBrut)}</span>
@@ -1106,7 +1264,6 @@ const Calculateur = () => {
               <span>{formatMontant(sousTotalMensuel)}</span>
             </div>
 
-            {/* Détail des rabais */}
             {rabaisDropdown.type !== 'aucun' && (
               <div>
                 <div className="flex justify-between text-xs">
@@ -1119,9 +1276,7 @@ const Calculateur = () => {
                   </span>
                 </div>
                 {rabaisDropdown.description && (
-                  <p className="text-xs text-muted-foreground ml-2 mt-0.5 italic">
-                    {rabaisDropdown.description}
-                  </p>
+                  <p className="text-xs text-muted-foreground ml-2 mt-0.5 italic">{rabaisDropdown.description}</p>
                 )}
               </div>
             )}
@@ -1134,7 +1289,7 @@ const Calculateur = () => {
             {rabaisState.pilote && rabaisPilote && !piloteSansEtab && (
               <div className="flex justify-between text-xs">
                 <span className="text-muted-foreground">{rabaisPilote.nom}</span>
-                <span style={{ color: 'hsl(var(--success))' }}>−{formatPourcentage(Number(rabaisPilote.pourcentage))} (sur pilote)</span>
+                <span style={{ color: 'hsl(var(--success))' }}>−{formatPourcentage(Number(rabaisPilote.pourcentage))} (pilote)</span>
               </div>
             )}
 
@@ -1152,13 +1307,15 @@ const Calculateur = () => {
             <div className="border-t pt-2 space-y-1">
               <div className="flex justify-between text-xs text-muted-foreground">
                 <span>Frais d'intégration ({etablissements.length} étab.)</span>
-                <span className={fraisOfferts ? 'line-through opacity-50' : ''}>
+                <span className={(fraisOfferts || estRqra) ? 'line-through opacity-50' : ''}>
                   {formatMontant(fraisIntegration)}
                 </span>
               </div>
-              {fraisOfferts && (
+              {(fraisOfferts || estRqra) && (
                 <div className="flex justify-between text-xs">
-                  <span style={{ color: 'hsl(var(--success))' }}>↳ Offerts (projet pilote)</span>
+                  <span style={{ color: 'hsl(var(--success))' }}>
+                    ↳ Offerts {estRqra ? '(RQRA)' : '(projet pilote)'}
+                  </span>
                   <span style={{ color: 'hsl(var(--success))' }}>0,00 $</span>
                 </div>
               )}
@@ -1176,19 +1333,14 @@ const Calculateur = () => {
             </div>
           )}
 
-          {/* Options disponibles */}
           {options.length > 0 && (
             <div className="border-t pt-3">
-              <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-2">
-                Options disponibles
-              </p>
+              <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-2">Options disponibles</p>
               <div className="space-y-1">
                 {options.map(opt => (
                   <div key={opt.id} className="flex justify-between text-xs gap-2">
                     <span className="text-muted-foreground truncate">{opt.nom || '—'}</span>
-                    <span className="text-muted-foreground text-right flex-shrink-0">
-                      {opt.prixDescription || 'Sur demande'}
-                    </span>
+                    <span className="text-muted-foreground text-right flex-shrink-0">{opt.prixDescription || 'Sur demande'}</span>
                   </div>
                 ))}
               </div>
