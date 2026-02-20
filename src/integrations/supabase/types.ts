@@ -451,6 +451,7 @@ export type Database = {
           created_at: string | null
           date_expiration: string | null
           frais_integration: number | null
+          frais_integration_offerts: boolean | null
           id: string
           nom_client: string
           notes_internes: string | null
@@ -469,6 +470,7 @@ export type Database = {
           created_at?: string | null
           date_expiration?: string | null
           frais_integration?: number | null
+          frais_integration_offerts?: boolean | null
           id?: string
           nom_client: string
           notes_internes?: string | null
@@ -487,6 +489,7 @@ export type Database = {
           created_at?: string | null
           date_expiration?: string | null
           frais_integration?: number | null
+          frais_integration_offerts?: boolean | null
           id?: string
           nom_client?: string
           notes_internes?: string | null

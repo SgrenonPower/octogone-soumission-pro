@@ -159,6 +159,7 @@ const Calculateur = () => {
   });
   const [notes, setNotes] = useState('');
   const [notesPerso, setNotesPerso] = useState('');
+  const [fraisOfferts, setFraisOfferts] = useState(false);
   const [sauvegarde, setSauvegarde] = useState(false);
   const [roiOuvert, setRoiOuvert] = useState(false);
   const [modulesSelectionnes, setModulesSelectionnes] = useState<Set<string>>(new Set());
@@ -227,7 +228,8 @@ const Calculateur = () => {
   const totalMensuel = calculs.reduce((acc, c) => acc + c.prixFinal, 0);
   const totalAnnuel = totalMensuel * 12;
   const fraisIntegration = etablissements.length * fraisParEtab;
-  const coutTotalAn1 = totalAnnuel + fraisIntegration;
+  const fraisIntegrationEffectifs = fraisOfferts ? 0 : fraisIntegration;
+  const coutTotalAn1 = totalAnnuel + fraisIntegrationEffectifs;
 
   // Rabais effectif en %
   const pctRabaisTotal = sousTotalMensuel > 0
@@ -292,8 +294,9 @@ const Calculateur = () => {
         nomClient: nomClient.trim(),
         totalMensuel,
         totalAnnuel,
-        fraisIntegration,
+        fraisIntegration: fraisIntegrationEffectifs,
         coutTotalAn1,
+        fraisIntegrationOfferts: fraisOfferts,
         notesInternes: notes,
         notesPersonnalisees: notesPerso.trim(),
         etablissements: calculs.map(c => ({
@@ -335,7 +338,7 @@ const Calculateur = () => {
     };
     window.addEventListener('keydown', handler);
     return () => window.removeEventListener('keydown', handler);
-  }, [nomClient, segmentId, etablissements, rabaisState, notes, notesPerso]);
+  }, [nomClient, segmentId, etablissements, rabaisState, notes, notesPerso, fraisOfferts]);
 
   // ============================================================
   // Rendu
@@ -553,7 +556,10 @@ const Calculateur = () => {
                     </div>
                     <Switch
                       checked={rabaisState.pilote}
-                      onCheckedChange={v => setRabaisState(prev => ({ ...prev, pilote: v }))}
+                      onCheckedChange={v => {
+                        setRabaisState(prev => ({ ...prev, pilote: v }));
+                        if (!v) setFraisOfferts(false);
+                      }}
                     />
                   </div>
                   {piloteSansEtab && (
@@ -563,6 +569,23 @@ const Calculateur = () => {
                       Marquez un établissement comme pilote dans la section ci-dessus.
                     </div>
                   )}
+                </div>
+              )}
+
+              {/* Toggle frais d'intégration offerts — visible si pilote activé */}
+              {rabaisState.pilote && (
+                <div className="flex items-center justify-between p-3 rounded-lg border border-dashed"
+                  style={{ borderColor: 'hsl(38 92% 50%)', background: 'hsl(38 92% 50% / 0.05)' }}>
+                  <div>
+                    <p className="text-sm font-medium">Frais d'intégration offerts (projet pilote)</p>
+                    <p className="text-xs text-muted-foreground">
+                      Valeur : {formatMontant(fraisIntegration)} — offerts à 0 $
+                    </p>
+                  </div>
+                  <Switch
+                    checked={fraisOfferts}
+                    onCheckedChange={setFraisOfferts}
+                  />
                 </div>
               )}
             </div>
@@ -859,8 +882,16 @@ const Calculateur = () => {
             <div className="border-t pt-2 space-y-1">
               <div className="flex justify-between text-xs text-muted-foreground">
                 <span>Frais d'intégration ({etablissements.length} étab.)</span>
-                <span>{formatMontant(fraisIntegration)}</span>
+                <span className={fraisOfferts ? 'line-through opacity-50' : ''}>
+                  {formatMontant(fraisIntegration)}
+                </span>
               </div>
+              {fraisOfferts && (
+                <div className="flex justify-between text-xs">
+                  <span style={{ color: 'hsl(var(--success))' }}>↳ Offerts (projet pilote)</span>
+                  <span style={{ color: 'hsl(var(--success))' }}>0,00 $</span>
+                </div>
+              )}
               <div className="flex justify-between font-bold text-sm pt-1 border-t">
                 <span>Coût total 1re année</span>
                 <span style={{ color: 'hsl(var(--primary))' }}>{formatMontant(coutTotalAn1)}</span>
