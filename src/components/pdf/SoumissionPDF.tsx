@@ -74,12 +74,39 @@ export const triggerPrint = () => {
   window.print();
 };
 
+// ─── Palette Octogone pour le PDF (fond blanc, accents vert)
+const P = {
+  // Couleur principale : vert foncé Octogone
+  dark: '#1a2e1e',        // quasi-noir vert (remplace le bleu #1e3a5f)
+  // Accent vert menthe clair
+  mint: '#7dd8a0',        // vert menthe signature
+  mintDark: '#4caf74',    // vert moyen pour les chiffres importants
+  mintBg: '#f0faf4',      // fond vert très pâle (remplace #f0f4f8)
+  mintBgAlt: '#e8f7ee',   // variante légèrement plus soutenue
+  // Neutres
+  gray: '#6b7280',
+  grayLight: '#9ca3af',
+  grayBg: '#f9fafb',
+  white: '#ffffff',
+  border: '#d1fae5',      // vert très pâle pour les bordures (remplace #e5e7eb)
+  borderNeutral: '#e5e7eb',
+  // Alertes (inchangées — sémantiques)
+  red: '#b91c1c',
+  redBg: '#fef9f9',
+  redBorder: '#fecaca',
+  green: '#059669',
+  greenBg: '#f0fdf4',
+  greenBorder: '#86efac',
+  amber: '#d97706',
+  amberBg: '#fffbeb',
+  amberBorder: '#fed7aa',
+};
+
 const SoumissionPDF = ({ soumission, etablissements, rabais, roi, roiModules, options = [], config }: SoumissionPDFProps) => {
   const nomEntreprise = config?.nom_entreprise || 'Octogone 360';
   const sousTitreEntreprise = config?.sous_titre_entreprise || 'Plateforme de gestion alimentaire';
   const conditionsGenerales = config?.conditions_generales ||
     "Les prix sont en dollars canadiens (CAD) et n'incluent pas les taxes applicables (TPS/TVQ). Cette soumission est valide pour une période de 30 jours à compter de la date d'émission. Les prix sont sujets à changement sans préavis après la date d'expiration. Les frais d'intégration sont payables à la signature du contrat. Le prix mensuel s'applique à compter de la mise en service de chaque établissement.";
-  const fraisParEtabConfig = config?.frais_integration ? Number(config.frais_integration) : null;
   const textePortee = (soumission as any).texte_portee?.trim()
     || config?.texte_portee_defaut
     || 'Octogone est une solution intégrée de gestion alimentaire conçue pour optimiser vos opérations, réduire vos coûts et éliminer les pertes invisibles de votre service alimentaire.';
@@ -148,24 +175,29 @@ const SoumissionPDF = ({ soumission, etablissements, rabais, roi, roiModules, op
         top: 0,
         width: '210mm',
         fontFamily: 'system-ui, -apple-system, sans-serif',
-        color: '#1a1a2e',
+        color: P.dark,
         fontSize: '11pt',
         lineHeight: '1.5',
+        background: P.white,
       }}
     >
       {/* ── EN-TÊTE ── */}
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 28, paddingBottom: 16, borderBottom: '2px solid #1e3a5f' }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 28, paddingBottom: 16, borderBottom: `3px solid ${P.mint}` }}>
         <div>
-          <div style={{ fontSize: '22pt', fontWeight: 800, color: '#1e3a5f', marginBottom: 4 }}>{nomEntreprise}</div>
-          <div style={{ fontSize: '9pt', color: '#6b7280' }}>{sousTitreEntreprise}</div>
+          {/* Bande accent verte avant le titre */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 4 }}>
+            <div style={{ width: 6, height: 32, background: P.mint, borderRadius: 3 }} />
+            <div style={{ fontSize: '22pt', fontWeight: 800, color: P.dark }}>{nomEntreprise}</div>
+          </div>
+          <div style={{ fontSize: '9pt', color: P.gray, paddingLeft: 16 }}>{sousTitreEntreprise}</div>
         </div>
         <div style={{ textAlign: 'right' }}>
-          <div style={{ fontSize: '16pt', fontWeight: 700, color: '#1e3a5f', fontFamily: 'monospace' }}>{soumission.numero}</div>
-          <div style={{ fontSize: '9pt', color: '#6b7280' }}>
+          <div style={{ fontSize: '16pt', fontWeight: 700, color: P.dark, fontFamily: 'monospace' }}>{soumission.numero}</div>
+          <div style={{ fontSize: '9pt', color: P.gray }}>
             Émise le {soumission.created_at ? formatDate(soumission.created_at) : ''}
           </div>
           {soumission.date_expiration && (
-            <div style={{ fontSize: '9pt', color: '#6b7280' }}>
+            <div style={{ fontSize: '9pt', color: P.gray }}>
               Valide jusqu'au {formatDate(soumission.date_expiration)}
             </div>
           )}
@@ -173,12 +205,12 @@ const SoumissionPDF = ({ soumission, etablissements, rabais, roi, roiModules, op
       </div>
 
       {/* ── CLIENT ── */}
-      <div className="pdf-no-break" style={{ marginBottom: 28, padding: '12px 16px', background: '#f0f4f8', borderRadius: 8, borderLeft: '4px solid #1e3a5f' }}>
-        <div style={{ fontSize: '9pt', fontWeight: 600, color: '#6b7280', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 4 }}>
+      <div className="pdf-no-break" style={{ marginBottom: 28, padding: '12px 16px', background: P.mintBg, borderRadius: 8, borderLeft: `4px solid ${P.mint}` }}>
+        <div style={{ fontSize: '9pt', fontWeight: 600, color: P.gray, textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 4 }}>
           PROPOSITION COMMERCIALE POUR
         </div>
-        <div style={{ fontSize: '14pt', fontWeight: 700 }}>{soumission.nom_client}</div>
-        <div style={{ fontSize: '9pt', color: '#6b7280', marginTop: 2 }}>
+        <div style={{ fontSize: '14pt', fontWeight: 700, color: P.dark }}>{soumission.nom_client}</div>
+        <div style={{ fontSize: '9pt', color: P.gray, marginTop: 2 }}>
           {etablissements.length} établissement{etablissements.length > 1 ? 's' : ''}
         </div>
       </div>
@@ -188,7 +220,7 @@ const SoumissionPDF = ({ soumission, etablissements, rabais, roi, roiModules, op
         <div style={{
           fontSize: '9pt',
           fontWeight: 700,
-          color: '#1e3a5f',
+          color: P.dark,
           textTransform: 'uppercase',
           letterSpacing: '0.06em',
           marginBottom: 6,
@@ -214,22 +246,20 @@ const SoumissionPDF = ({ soumission, etablissements, rabais, roi, roiModules, op
         if (pertesAvecDonnees.length === 0) return null;
 
         return (
-          <div className="pdf-no-break" style={{ marginBottom: 28, padding: '18px 20px', background: '#fef9f9', border: '1px solid #fecaca', borderRadius: 10 }}>
-            {/* Titre */}
-            <div style={{ fontSize: '13pt', fontWeight: 800, color: '#b91c1c', marginBottom: 4 }}>
+          <div className="pdf-no-break" style={{ marginBottom: 28, padding: '18px 20px', background: P.redBg, border: `1px solid ${P.redBorder}`, borderRadius: 10 }}>
+            <div style={{ fontSize: '13pt', fontWeight: 800, color: P.red, marginBottom: 4 }}>
               Ce que vos factures ne vous montrent pas
             </div>
-            <div style={{ fontSize: '9pt', color: '#6b7280', fontStyle: 'italic', marginBottom: 16 }}>
+            <div style={{ fontSize: '9pt', color: P.gray, fontStyle: 'italic', marginBottom: 16 }}>
               Vos factures alimentaires vous indiquent combien vous dépensez. Mais elles ne révèlent jamais combien vous perdez.
               Sans système de suivi en place, ces pertes restent invisibles — comme une passoire dont personne ne connaît l'existence.
             </div>
 
-            {/* Grille de cartes (2 colonnes) */}
             <div style={{ display: 'grid', gridTemplateColumns: pertesAvecDonnees.length === 1 ? '1fr' : '1fr 1fr', gap: 10, marginBottom: 14 }}>
               {pertesAvecDonnees.map(perte => (
                 <div key={perte.id} style={{
                   background: '#FEF2F2',
-                  border: '1px solid #FECACA',
+                  border: `1px solid ${P.redBorder}`,
                   borderRadius: 8,
                   padding: '12px 14px',
                 }}>
@@ -237,7 +267,7 @@ const SoumissionPDF = ({ soumission, etablissements, rabais, roi, roiModules, op
                     <span style={{ fontSize: '14pt' }}>{perte.emoji}</span>
                     <div style={{ fontSize: '10pt', fontWeight: 700, color: '#991b1b' }}>{perte.titre}</div>
                   </div>
-                  <div style={{ fontSize: '9pt', color: '#6b7280', marginBottom: 8, lineHeight: 1.4 }}>{perte.description}</div>
+                  <div style={{ fontSize: '9pt', color: P.gray, marginBottom: 8, lineHeight: 1.4 }}>{perte.description}</div>
                   <div style={{
                     display: 'inline-block',
                     background: '#fee2e2',
@@ -253,11 +283,10 @@ const SoumissionPDF = ({ soumission, etablissements, rabais, roi, roiModules, op
               ))}
             </div>
 
-            {/* Encadré chiffre-choc personnalisé */}
             {budgetAlimentaire > 0 && (
               <div style={{
-                background: '#fff7ed',
-                border: '1px solid #fed7aa',
+                background: P.amberBg,
+                border: `1px solid ${P.amberBorder}`,
                 borderRadius: 8,
                 padding: '12px 16px',
                 fontSize: '9.5pt',
@@ -279,17 +308,16 @@ const SoumissionPDF = ({ soumission, etablissements, rabais, roi, roiModules, op
 
       {/* ── SECTION 1 : VOTRE INVESTISSEMENT ── */}
       <div className="pdf-no-break" style={{ marginBottom: 24 }}>
-        <div style={{ fontSize: '13pt', fontWeight: 800, color: '#1e3a5f', marginBottom: 4 }}>
+        <div style={{ fontSize: '13pt', fontWeight: 800, color: P.dark, marginBottom: 4 }}>
           Votre investissement
         </div>
-        <div style={{ fontSize: '9pt', color: '#6b7280', marginBottom: 12 }}>
+        <div style={{ fontSize: '9pt', color: P.gray, marginBottom: 12 }}>
           Détail par établissement avec les conditions négociées
         </div>
 
-        {/* Tableau établissements enrichi */}
         <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '10pt' }}>
           <thead>
-            <tr style={{ background: '#1e3a5f', color: 'white' }}>
+            <tr style={{ background: P.dark, color: P.white }}>
               <th style={{ padding: '8px 12px', textAlign: 'left', fontWeight: 600 }}>Établissement</th>
               <th style={{ padding: '8px 12px', textAlign: 'center', fontWeight: 600 }}>Unités</th>
               {aDesRabais && (
@@ -308,26 +336,26 @@ const SoumissionPDF = ({ soumission, etablissements, rabais, roi, roiModules, op
               const eco = brut - final;
               const aRabaisLigne = eco > 0.01;
               return (
-                <tr key={e.id} style={{ background: i % 2 === 0 ? '#f9fafb' : 'white', borderBottom: '1px solid #e5e7eb' }}>
+                <tr key={e.id} style={{ background: i % 2 === 0 ? P.grayBg : P.white, borderBottom: `1px solid ${P.borderNeutral}` }}>
                   <td style={{ padding: '8px 12px' }}>
                     {e.nom_etablissement || `Établissement ${i + 1}`}
                     {e.est_pilote && (
-                      <span style={{ marginLeft: 8, fontSize: '8pt', padding: '2px 6px', background: '#dbeafe', color: '#1d4ed8', borderRadius: 4 }}>
+                      <span style={{ marginLeft: 8, fontSize: '8pt', padding: '2px 6px', background: `${P.mint}33`, color: P.dark, borderRadius: 4 }}>
                         PILOTE
                       </span>
                     )}
                   </td>
                   <td style={{ padding: '8px 12px', textAlign: 'center' }}>{e.nombre_unites}</td>
                   {aDesRabais && (
-                    <td style={{ padding: '8px 12px', textAlign: 'right', color: '#9ca3af', textDecoration: aRabaisLigne ? 'line-through' : 'none' }}>
+                    <td style={{ padding: '8px 12px', textAlign: 'right', color: P.grayLight, textDecoration: aRabaisLigne ? 'line-through' : 'none' }}>
                       {formatMontant(brut)}
                     </td>
                   )}
-                  <td style={{ padding: '8px 12px', textAlign: 'right', fontWeight: 700, color: '#1e3a5f' }}>
+                  <td style={{ padding: '8px 12px', textAlign: 'right', fontWeight: 700, color: P.dark }}>
                     {formatMontant(final)}
                   </td>
                   {aDesRabais && (
-                    <td style={{ padding: '8px 12px', textAlign: 'right', color: aRabaisLigne ? '#059669' : '#9ca3af', fontWeight: aRabaisLigne ? 600 : 400 }}>
+                    <td style={{ padding: '8px 12px', textAlign: 'right', color: aRabaisLigne ? P.green : P.grayLight, fontWeight: aRabaisLigne ? 600 : 400 }}>
                       {aRabaisLigne ? `−\u00a0${formatMontant(eco)}` : '—'}
                     </td>
                   )}
@@ -358,20 +386,20 @@ const SoumissionPDF = ({ soumission, etablissements, rabais, roi, roiModules, op
 
       {/* Cartes récapitulatif */}
       <div className="pdf-no-break" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 12, marginBottom: 28 }}>
-        {/* Mensuel */}
-        <div style={{ padding: '14px 16px', background: '#1e3a5f', borderRadius: 10, textAlign: 'center' }}>
+        {/* Mensuel — carte principale avec fond vert foncé */}
+        <div style={{ padding: '14px 16px', background: P.dark, borderRadius: 10, textAlign: 'center' }}>
           <div style={{ fontSize: '8pt', color: 'rgba(255,255,255,0.6)', textTransform: 'uppercase', letterSpacing: '0.07em', marginBottom: 6 }}>
             Mensuel
           </div>
-          <div style={{ fontSize: '15pt', fontWeight: 800, color: 'white', marginBottom: 4 }}>
+          <div style={{ fontSize: '15pt', fontWeight: 800, color: P.white, marginBottom: 4 }}>
             {formatMontant(totalMensuel)}
           </div>
           {aDesRabais && (
             <>
-              <div style={{ fontSize: '8.5pt', color: 'rgba(255,255,255,0.5)', textDecoration: 'line-through', marginBottom: 2 }}>
+              <div style={{ fontSize: '8.5pt', color: 'rgba(255,255,255,0.45)', textDecoration: 'line-through', marginBottom: 2 }}>
                 {formatMontant(totalBrutMensuel)}
               </div>
-              <div style={{ fontSize: '8.5pt', color: '#6ee7b7', fontWeight: 600 }}>
+              <div style={{ fontSize: '8.5pt', color: P.mint, fontWeight: 600 }}>
                 −{pctEconomiePrix.toFixed(1)}%
               </div>
             </>
@@ -379,19 +407,19 @@ const SoumissionPDF = ({ soumission, etablissements, rabais, roi, roiModules, op
         </div>
 
         {/* Annuel */}
-        <div style={{ padding: '14px 16px', background: '#f0f4f8', borderRadius: 10, textAlign: 'center' }}>
-          <div style={{ fontSize: '8pt', color: '#6b7280', textTransform: 'uppercase', letterSpacing: '0.07em', marginBottom: 6 }}>
+        <div style={{ padding: '14px 16px', background: P.mintBg, borderRadius: 10, textAlign: 'center', border: `1px solid ${P.border}` }}>
+          <div style={{ fontSize: '8pt', color: P.gray, textTransform: 'uppercase', letterSpacing: '0.07em', marginBottom: 6 }}>
             Annuel
           </div>
-          <div style={{ fontSize: '15pt', fontWeight: 800, color: '#1e3a5f', marginBottom: 4 }}>
+          <div style={{ fontSize: '15pt', fontWeight: 800, color: P.dark, marginBottom: 4 }}>
             {formatMontant(totalAnnuel)}
           </div>
           {aDesRabais && (
             <>
-              <div style={{ fontSize: '8.5pt', color: '#9ca3af', textDecoration: 'line-through', marginBottom: 2 }}>
+              <div style={{ fontSize: '8.5pt', color: P.grayLight, textDecoration: 'line-through', marginBottom: 2 }}>
                 {formatMontant(totalBrutAnnuel)}
               </div>
-              <div style={{ fontSize: '8.5pt', color: '#059669', fontWeight: 600 }}>
+              <div style={{ fontSize: '8.5pt', color: P.green, fontWeight: 600 }}>
                 Économie : {formatMontant(economiePrixAnnuel)}/an
               </div>
             </>
@@ -399,23 +427,23 @@ const SoumissionPDF = ({ soumission, etablissements, rabais, roi, roiModules, op
         </div>
 
         {/* 1re année */}
-        <div style={{ padding: '14px 16px', background: '#f0f4f8', borderRadius: 10, textAlign: 'center' }}>
-          <div style={{ fontSize: '8pt', color: '#6b7280', textTransform: 'uppercase', letterSpacing: '0.07em', marginBottom: 6 }}>
+        <div style={{ padding: '14px 16px', background: P.mintBg, borderRadius: 10, textAlign: 'center', border: `1px solid ${P.border}` }}>
+          <div style={{ fontSize: '8pt', color: P.gray, textTransform: 'uppercase', letterSpacing: '0.07em', marginBottom: 6 }}>
             1re année (incl. intégration)
           </div>
-          <div style={{ fontSize: '15pt', fontWeight: 800, color: '#1e3a5f', marginBottom: 4 }}>
+          <div style={{ fontSize: '15pt', fontWeight: 800, color: P.dark, marginBottom: 4 }}>
             {fraisOfferts ? formatMontant(totalAnnuel) : formatMontant(coutAn1)}
           </div>
           {fraisOfferts ? (
-            <div style={{ fontSize: '8.5pt', color: '#059669', fontWeight: 600 }}>
-              <span style={{ textDecoration: 'line-through', color: '#9ca3af', marginRight: 4 }}>
+            <div style={{ fontSize: '8.5pt', color: P.green, fontWeight: 600 }}>
+              <span style={{ textDecoration: 'line-through', color: P.grayLight, marginRight: 4 }}>
                 {formatMontant(coutAn1)}
               </span>
               Intégration offerte ✓
             </div>
           ) : (
             fraisInt > 0 && (
-              <div style={{ fontSize: '8.5pt', color: '#6b7280' }}>
+              <div style={{ fontSize: '8.5pt', color: P.gray }}>
                 dont {formatMontant(fraisInt)} d'intégration
               </div>
             )
@@ -426,44 +454,44 @@ const SoumissionPDF = ({ soumission, etablissements, rabais, roi, roiModules, op
       {/* ── SECTION 2 : CE QUE VOUS GAGNEZ (ROI) ── */}
       {hasRoi && (
         <div className="pdf-page-break">
-          <div style={{ fontSize: '13pt', fontWeight: 800, color: '#1e3a5f', marginBottom: 4 }}>
+          <div style={{ fontSize: '13pt', fontWeight: 800, color: P.dark, marginBottom: 4 }}>
             Ce que vous gagnez avec {nomEntreprise}
           </div>
-          <div style={{ fontSize: '9pt', color: '#6b7280', marginBottom: 16 }}>
+          <div style={{ fontSize: '9pt', color: P.gray, marginBottom: 16 }}>
             Estimation des économies générées grâce aux modules sélectionnés
           </div>
 
-          {/* Tableau des modules orienté bénéfices */}
           <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '10pt', marginBottom: 20 }}>
             <thead>
-              <tr style={{ background: '#f0f4f8' }}>
-                <th style={{ padding: '8px 12px', textAlign: 'left', fontWeight: 600, color: '#1e3a5f' }}>Module</th>
-                <th style={{ padding: '8px 12px', textAlign: 'left', fontWeight: 600, color: '#1e3a5f' }}>Ce que ça règle</th>
-                <th style={{ padding: '8px 12px', textAlign: 'right', fontWeight: 600, color: '#1e3a5f' }}>Économie/mois</th>
-                <th style={{ padding: '8px 12px', textAlign: 'right', fontWeight: 600, color: '#1e3a5f' }}>Économie/an</th>
+              <tr style={{ background: P.mintBg, borderBottom: `2px solid ${P.mint}` }}>
+                <th style={{ padding: '8px 12px', textAlign: 'left', fontWeight: 600, color: P.dark }}>Module</th>
+                <th style={{ padding: '8px 12px', textAlign: 'left', fontWeight: 600, color: P.dark }}>Ce que ça règle</th>
+                <th style={{ padding: '8px 12px', textAlign: 'right', fontWeight: 600, color: P.dark }}>Économie/mois</th>
+                <th style={{ padding: '8px 12px', textAlign: 'right', fontWeight: 600, color: P.dark }}>Économie/an</th>
               </tr>
             </thead>
             <tbody>
               {modulesSelectionnes.map((m, i) => (
-                <tr key={m.id} style={{ background: i % 2 === 0 ? '#f9fafb' : 'white', borderBottom: '1px solid #e5e7eb' }}>
-                  <td style={{ padding: '8px 12px', fontWeight: 600, color: '#1e3a5f' }}>
+                <tr key={m.id} style={{ background: i % 2 === 0 ? P.grayBg : P.white, borderBottom: `1px solid ${P.borderNeutral}` }}>
+                  <td style={{ padding: '8px 12px', fontWeight: 600, color: P.dark }}>
                     {(m as any).modules_roi?.nom || `Module ${i + 1}`}
                   </td>
-                  <td style={{ padding: '8px 12px', color: '#6b7280', fontSize: '9pt' }}>
+                  <td style={{ padding: '8px 12px', color: P.gray, fontSize: '9pt' }}>
                     {(m as any).modules_roi?.description || ''}
                   </td>
-                  <td style={{ padding: '8px 12px', textAlign: 'right', color: '#059669', fontWeight: 600 }}>
+                  <td style={{ padding: '8px 12px', textAlign: 'right', color: P.green, fontWeight: 600 }}>
                     {formatMontant(Number(m.economie_mensuelle || 0))}
                   </td>
-                  <td style={{ padding: '8px 12px', textAlign: 'right', fontWeight: 700, color: '#059669' }}>
+                  <td style={{ padding: '8px 12px', textAlign: 'right', fontWeight: 700, color: P.green }}>
                     {formatMontant(Number(m.economie_annuelle || 0))}
                   </td>
                 </tr>
               ))}
-              <tr style={{ background: '#065f46', color: 'white' }}>
+              {/* Ligne totaux — fond vert foncé */}
+              <tr style={{ background: P.dark, color: P.white }}>
                 <td colSpan={2} style={{ padding: '9px 12px', fontWeight: 700 }}>Total des économies générées</td>
-                <td style={{ padding: '9px 12px', textAlign: 'right', fontWeight: 700 }}>{formatMontant(economiesTotalesMens)}</td>
-                <td style={{ padding: '9px 12px', textAlign: 'right', fontWeight: 800, fontSize: '11pt' }}>{formatMontant(economiesTotalesAnn)}</td>
+                <td style={{ padding: '9px 12px', textAlign: 'right', fontWeight: 700, color: P.mint }}>{formatMontant(economiesTotalesMens)}</td>
+                <td style={{ padding: '9px 12px', textAlign: 'right', fontWeight: 800, fontSize: '11pt', color: P.mint }}>{formatMontant(economiesTotalesAnn)}</td>
               </tr>
             </tbody>
           </table>
@@ -472,21 +500,21 @@ const SoumissionPDF = ({ soumission, etablissements, rabais, roi, roiModules, op
           <div className="pdf-no-break" style={{
             padding: '18px 20px',
             borderRadius: 10,
-            border: `2px solid ${beneficePositif ? '#059669' : '#f59e0b'}`,
-            background: beneficePositif ? '#f0fdf4' : '#fffbeb',
+            border: `2px solid ${beneficePositif ? P.green : P.amberBorder}`,
+            background: beneficePositif ? P.greenBg : P.amberBg,
             marginBottom: 20,
           }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 8, fontSize: '10pt' }}>
-              <span style={{ color: '#6b7280' }}>Votre investissement Octogone :</span>
-              <span style={{ fontWeight: 600, color: '#1e3a5f' }}>{formatMontant(totalAnnuel)} / an</span>
+              <span style={{ color: P.gray }}>Votre investissement Octogone :</span>
+              <span style={{ fontWeight: 600, color: P.dark }}>{formatMontant(totalAnnuel)} / an</span>
             </div>
             <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 10, fontSize: '10pt' }}>
-              <span style={{ color: '#6b7280' }}>Vos économies générées :</span>
-              <span style={{ fontWeight: 600, color: '#059669' }}>−{formatMontant(economiesTotalesAnn)} / an</span>
+              <span style={{ color: P.gray }}>Vos économies générées :</span>
+              <span style={{ fontWeight: 600, color: P.green }}>−{formatMontant(economiesTotalesAnn)} / an</span>
             </div>
-            <div style={{ borderTop: `1px solid ${beneficePositif ? '#86efac' : '#fcd34d'}`, paddingTop: 10, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <span style={{ fontWeight: 700, fontSize: '11pt', color: '#1e3a5f' }}>BÉNÉFICE NET :</span>
-              <span style={{ fontWeight: 800, fontSize: '14pt', color: beneficePositif ? '#059669' : '#d97706' }}>
+            <div style={{ borderTop: `1px solid ${beneficePositif ? P.greenBorder : P.amberBorder}`, paddingTop: 10, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <span style={{ fontWeight: 700, fontSize: '11pt', color: P.dark }}>BÉNÉFICE NET :</span>
+              <span style={{ fontWeight: 800, fontSize: '14pt', color: beneficePositif ? P.green : P.amber }}>
                 +{formatMontant(Math.abs(beneficeNetAnn))} / an {beneficePositif ? '✓' : ''}
               </span>
             </div>
@@ -507,14 +535,14 @@ const SoumissionPDF = ({ soumission, etablissements, rabais, roi, roiModules, op
           <div className="pdf-no-break" style={{
             padding: '16px 20px',
             borderRadius: 10,
-            background: '#eff6ff',
-            border: '1px solid #bfdbfe',
+            background: P.mintBg,
+            border: `1px solid ${P.border}`,
             marginBottom: 24,
           }}>
-            <div style={{ fontSize: '9.5pt', color: '#1e40af', fontStyle: 'italic', lineHeight: 1.7 }}>
+            <div style={{ fontSize: '9.5pt', color: P.dark, fontStyle: 'italic', lineHeight: 1.7 }}>
               En résumé, pour un investissement mensuel de <strong>{formatMontant(totalMensuel)}</strong>,{' '}
               {nomEntreprise} vous permet d'économiser <strong>{formatMontant(economiesTotalesMens)}</strong> par mois,
-              {' '}soit un bénéfice net de <strong style={{ color: '#059669' }}>{formatMontant(Math.abs(beneficeNetMens))}</strong>{' '}
+              {' '}soit un bénéfice net de <strong style={{ color: P.green }}>{formatMontant(Math.abs(beneficeNetMens))}</strong>{' '}
               {beneficePositif ? 'chaque mois' : 'à atteindre'}.
               {beneficePositif && ` Votre investissement est rentabilisé en ${roi!.periode_retour_mois} mois seulement.`}
             </div>
@@ -525,28 +553,28 @@ const SoumissionPDF = ({ soumission, etablissements, rabais, roi, roiModules, op
       {/* ── OPTIONS SUPPLÉMENTAIRES ── */}
       {options.length > 0 && (
         <div className="pdf-no-break" style={{ marginBottom: 24 }}>
-          <div style={{ fontSize: '11pt', fontWeight: 700, marginBottom: 10, color: '#1e3a5f' }}>
+          <div style={{ fontSize: '11pt', fontWeight: 700, marginBottom: 10, color: P.dark }}>
             Options supplémentaires (au besoin)
           </div>
           <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '10pt' }}>
             <thead>
-              <tr style={{ background: '#f0f4f8' }}>
-                <th style={{ padding: '8px 12px', textAlign: 'left', fontWeight: 600, color: '#6b7280' }}>Option</th>
-                <th style={{ padding: '8px 12px', textAlign: 'right', fontWeight: 600, color: '#6b7280' }}>Prix</th>
+              <tr style={{ background: P.mintBg, borderBottom: `1px solid ${P.border}` }}>
+                <th style={{ padding: '8px 12px', textAlign: 'left', fontWeight: 600, color: P.gray }}>Option</th>
+                <th style={{ padding: '8px 12px', textAlign: 'right', fontWeight: 600, color: P.gray }}>Prix</th>
               </tr>
             </thead>
             <tbody>
               {options.map((opt, i) => (
-                <tr key={opt.id} style={{ borderBottom: '1px solid #e5e7eb', background: i % 2 === 0 ? '#f9fafb' : 'white' }}>
+                <tr key={opt.id} style={{ borderBottom: `1px solid ${P.borderNeutral}`, background: i % 2 === 0 ? P.grayBg : P.white }}>
                   <td style={{ padding: '8px 12px' }}>{opt.nom}</td>
-                  <td style={{ padding: '8px 12px', textAlign: 'right', color: '#6b7280' }}>
+                  <td style={{ padding: '8px 12px', textAlign: 'right', color: P.gray }}>
                     {opt.prix_description || 'Sur demande'}
                   </td>
                 </tr>
               ))}
             </tbody>
           </table>
-          <p style={{ fontSize: '8.5pt', color: '#9ca3af', marginTop: 8, fontStyle: 'italic' }}>
+          <p style={{ fontSize: '8.5pt', color: P.grayLight, marginTop: 8, fontStyle: 'italic' }}>
             Ces options sont informatives et ne sont pas incluses dans le total de l'abonnement.
           </p>
         </div>
@@ -559,10 +587,10 @@ const SoumissionPDF = ({ soumission, etablissements, rabais, roi, roiModules, op
         if (!lignes.length) return null;
         return (
           <div className="pdf-no-break" style={{ marginBottom: 24 }}>
-            <div style={{ fontSize: '11pt', fontWeight: 700, marginBottom: 8, color: '#1e3a5f' }}>
+            <div style={{ fontSize: '11pt', fontWeight: 700, marginBottom: 8, color: P.dark }}>
               Notes importantes
             </div>
-            <div style={{ background: '#fffbeb', borderLeft: '4px solid #f59e0b', borderRadius: 8, padding: '12px 16px' }}>
+            <div style={{ background: P.amberBg, borderLeft: `4px solid #f59e0b`, borderRadius: 8, padding: '12px 16px' }}>
               {lignes.map((ligne: string, i: number) => (
                 <div key={i} style={{ fontSize: '10pt', color: '#78350f', lineHeight: 1.6 }}>
                   • {ligne}
@@ -574,41 +602,41 @@ const SoumissionPDF = ({ soumission, etablissements, rabais, roi, roiModules, op
       })()}
 
       {/* ── CONDITIONS ── */}
-      <div className="pdf-no-break" style={{ marginTop: 36, paddingTop: 20, borderTop: '1px solid #e5e7eb' }}>
-        <div style={{ fontSize: '10pt', fontWeight: 700, marginBottom: 8, color: '#1e3a5f' }}>Conditions générales</div>
-        <div style={{ fontSize: '9pt', color: '#6b7280', lineHeight: 1.6 }}>
+      <div className="pdf-no-break" style={{ marginTop: 36, paddingTop: 20, borderTop: `1px solid ${P.borderNeutral}` }}>
+        <div style={{ fontSize: '10pt', fontWeight: 700, marginBottom: 8, color: P.dark }}>Conditions générales</div>
+        <div style={{ fontSize: '9pt', color: P.gray, lineHeight: 1.6 }}>
           {conditionsGenerales}
         </div>
       </div>
 
       {/* ── ACCEPTATION / SIGNATURE ── */}
-      <div style={{ marginTop: 28, paddingTop: 20, borderTop: '1px solid #e5e7eb', pageBreakInside: 'avoid' }}>
-        <div style={{ fontSize: '11pt', fontWeight: 700, color: '#1e3a5f', marginBottom: 8 }}>
+      <div style={{ marginTop: 28, paddingTop: 20, borderTop: `1px solid ${P.borderNeutral}`, pageBreakInside: 'avoid' }}>
+        <div style={{ fontSize: '11pt', fontWeight: 700, color: P.dark, marginBottom: 8 }}>
           Acceptation
         </div>
-        <div style={{ fontSize: '9pt', color: '#6b7280', lineHeight: 1.6, marginBottom: 20 }}>
+        <div style={{ fontSize: '9pt', color: P.gray, lineHeight: 1.6, marginBottom: 20 }}>
           En signant ce document, le client confirme avoir pris connaissance des termes et conditions et accepte la présente soumission.
         </div>
         <div style={{ display: 'flex', gap: 48, marginBottom: 16, alignItems: 'flex-end' }}>
           <div style={{ flex: 2 }}>
             <div style={{ fontSize: '9pt', color: '#374151', marginBottom: 4 }}>Nom</div>
-            <div style={{ borderBottom: '1px solid #9ca3af', height: 24, minWidth: 220 }} />
+            <div style={{ borderBottom: `1px solid ${P.grayLight}`, height: 24, minWidth: 220 }} />
           </div>
           <div style={{ flex: 1 }}>
             <div style={{ fontSize: '9pt', color: '#374151', marginBottom: 4 }}>Date</div>
-            <div style={{ borderBottom: '1px solid #9ca3af', height: 24, minWidth: 120 }} />
+            <div style={{ borderBottom: `1px solid ${P.grayLight}`, height: 24, minWidth: 120 }} />
           </div>
         </div>
         <div>
           <div style={{ fontSize: '9pt', color: '#374151', marginBottom: 4 }}>Signature</div>
-          <div style={{ borderBottom: '1px solid #9ca3af', height: 36, minWidth: 260 }} />
+          <div style={{ borderBottom: `1px solid ${P.grayLight}`, height: 36, minWidth: 260 }} />
         </div>
       </div>
 
       {/* ── PIED DE PAGE ── */}
-      <div style={{ marginTop: 28, paddingTop: 12, borderTop: '2px solid #1e3a5f', display: 'flex', justifyContent: 'space-between', fontSize: '9pt', color: '#6b7280' }}>
-        <span>{nomEntreprise}</span>
-        <span>{soumission.numero}</span>
+      <div style={{ marginTop: 28, paddingTop: 12, borderTop: `3px solid ${P.mint}`, display: 'flex', justifyContent: 'space-between', fontSize: '9pt', color: P.gray }}>
+        <span style={{ fontWeight: 700, color: P.dark }}>{nomEntreprise}</span>
+        <span style={{ color: P.mintDark }}>{soumission.numero}</span>
         <span>Confidentiel</span>
       </div>
     </div>

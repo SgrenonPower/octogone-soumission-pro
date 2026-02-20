@@ -47,9 +47,9 @@ import SoumissionPDF, { triggerPrint } from '@/components/pdf/SoumissionPDF';
 
 const STATUTS = {
   brouillon: { label: 'Brouillon', color: 'bg-muted text-muted-foreground', icon: Edit },
-  envoyee: { label: 'Envoyée', color: 'bg-blue-100 text-blue-700', icon: Clock },
-  acceptee: { label: 'Acceptée', color: 'bg-green-100 text-green-700', icon: CheckCircle2 },
-  expiree: { label: 'Expirée', color: 'bg-red-100 text-red-700', icon: XCircle },
+  envoyee: { label: 'Envoyée', color: 'bg-primary/15 text-primary', icon: Clock },
+  acceptee: { label: 'Acceptée', color: 'bg-success/15 text-success', icon: CheckCircle2 },
+  expiree: { label: 'Expirée', color: 'bg-destructive/15 text-destructive', icon: XCircle },
 };
 
 const BadgeStatut = ({ statut }: { statut: string }) => {
