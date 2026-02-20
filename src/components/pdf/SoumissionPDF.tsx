@@ -78,7 +78,7 @@ const SoumissionPDF = ({ soumission, etablissements, rabais, roi, roiModules, op
   const nomEntreprise = config?.nom_entreprise || 'Octogone 360';
   const sousTitreEntreprise = config?.sous_titre_entreprise || 'Plateforme de gestion alimentaire';
   const conditionsGenerales = config?.conditions_generales ||
-    "Cette soumission est valide pour une période de 30 jours à compter de la date d'émission. Les prix sont exprimés en dollars canadiens et sont sujets à change sans préavis après la date d'expiration. Les frais d'intégration sont payables à la signature du contrat. Le prix mensuel s'applique à compter de la mise en service de chaque établissement.";
+    "Les prix sont en dollars canadiens (CAD) et n'incluent pas les taxes applicables (TPS/TVQ). Cette soumission est valide pour une période de 30 jours à compter de la date d'émission. Les prix sont sujets à changement sans préavis après la date d'expiration. Les frais d'intégration sont payables à la signature du contrat. Le prix mensuel s'applique à compter de la mise en service de chaque établissement.";
   const fraisParEtabConfig = config?.frais_integration ? Number(config.frais_integration) : null;
   const textePortee = (soumission as any).texte_portee?.trim()
     || config?.texte_portee_defaut
@@ -578,6 +578,30 @@ const SoumissionPDF = ({ soumission, etablissements, rabais, roi, roiModules, op
         <div style={{ fontSize: '10pt', fontWeight: 700, marginBottom: 8, color: '#1e3a5f' }}>Conditions générales</div>
         <div style={{ fontSize: '9pt', color: '#6b7280', lineHeight: 1.6 }}>
           {conditionsGenerales}
+        </div>
+      </div>
+
+      {/* ── ACCEPTATION / SIGNATURE ── */}
+      <div style={{ marginTop: 28, paddingTop: 20, borderTop: '1px solid #e5e7eb', pageBreakInside: 'avoid' }}>
+        <div style={{ fontSize: '11pt', fontWeight: 700, color: '#1e3a5f', marginBottom: 8 }}>
+          Acceptation
+        </div>
+        <div style={{ fontSize: '9pt', color: '#6b7280', lineHeight: 1.6, marginBottom: 20 }}>
+          En signant ce document, le client confirme avoir pris connaissance des termes et conditions et accepte la présente soumission.
+        </div>
+        <div style={{ display: 'flex', gap: 48, marginBottom: 16, alignItems: 'flex-end' }}>
+          <div style={{ flex: 2 }}>
+            <div style={{ fontSize: '9pt', color: '#374151', marginBottom: 4 }}>Nom</div>
+            <div style={{ borderBottom: '1px solid #9ca3af', height: 24, minWidth: 220 }} />
+          </div>
+          <div style={{ flex: 1 }}>
+            <div style={{ fontSize: '9pt', color: '#374151', marginBottom: 4 }}>Date</div>
+            <div style={{ borderBottom: '1px solid #9ca3af', height: 24, minWidth: 120 }} />
+          </div>
+        </div>
+        <div>
+          <div style={{ fontSize: '9pt', color: '#374151', marginBottom: 4 }}>Signature</div>
+          <div style={{ borderBottom: '1px solid #9ca3af', height: 36, minWidth: 260 }} />
         </div>
       </div>
 
