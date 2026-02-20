@@ -174,6 +174,10 @@ const SoumissionPDF = ({ soumission, etablissements, rabais, roi, roiModules, op
   const totalAnnuel = Number(soumission.total_annuel || 0);
   const fraisInt = Number(soumission.frais_integration || 0);
   const fraisOfferts = (soumission as any).frais_integration_offerts ?? false;
+  const estRqra = (soumission as any).est_rqra ?? false;
+  // Détecter le contexte des frais offerts depuis les rabais appliqués
+  const estMultiSites = rabais.some((r: any) => r.slug === 'multi-sites' || r.type_rabais === 'multi-sites');
+  const libelleOfferteRaison = estRqra ? 'RQRA' : estMultiSites ? 'multi-sites' : 'projet pilote';
   const coutAn1 = Number(soumission.cout_total_an1 || 0);
 
   const totalBrutMensuel = etablissements.reduce((sum, e) => sum + Number(e.prix_brut || 0), 0);
@@ -463,7 +467,7 @@ const SoumissionPDF = ({ soumission, etablissements, rabais, roi, roiModules, op
               <span style={{ textDecoration: 'line-through', color: P.grayLight, marginRight: 4 }}>
                 {formatMontant(coutAn1)}
               </span>
-              Intégration offerte ✓
+              Intégration offerte — {libelleOfferteRaison} ✓
             </div>
           ) : (
             fraisInt > 0 && (
