@@ -116,22 +116,48 @@ const SoumissionPDF = ({ soumission, etablissements, rabais, roi, roiModules, op
     style.id = 'pdf-print-style';
     style.textContent = `
       @media print {
+        /* Masquer tout le body sauf le wrapper PDF via visibility */
         body * { visibility: hidden !important; }
-        #pdf-content,
-        #pdf-content * { visibility: visible !important; }
-        #pdf-content {
-          position: fixed !important;
-          top: 0 !important;
+
+        /* Rendre visible le contenu PDF */
+        #pdf-content-wrapper,
+        #pdf-content-wrapper * { visibility: visible !important; }
+
+        /* Positionner le wrapper en haut à gauche, laissant le flux naturel */
+        #pdf-content-wrapper {
+          position: absolute !important;
           left: 0 !important;
+          top: 0 !important;
           width: 100% !important;
-          background: white !important;
-          z-index: 99999 !important;
-          padding: 0 !important;
-          margin: 0 !important;
+          height: auto !important;
+          overflow: visible !important;
         }
+
+        /* Le conteneur principal du PDF : flux naturel, hauteur auto */
+        #pdf-content {
+          position: static !important;
+          width: 100% !important;
+          height: auto !important;
+          overflow: visible !important;
+          background: white !important;
+        }
+
+        /* Paramètres de page A4 */
         @page { size: A4; margin: 18mm 15mm; }
-        .pdf-no-break { page-break-inside: avoid; }
-        .pdf-page-break { page-break-before: always; }
+
+        /* Contrôle des sauts de page */
+        .pdf-no-break {
+          page-break-inside: avoid !important;
+          break-inside: avoid !important;
+        }
+        .pdf-page-break {
+          page-break-before: always !important;
+          break-before: always !important;
+        }
+        .pdf-signature-block {
+          page-break-inside: avoid !important;
+          break-inside: avoid !important;
+        }
       }
     `;
     if (!document.getElementById('pdf-print-style')) {
@@ -167,13 +193,11 @@ const SoumissionPDF = ({ soumission, etablissements, rabais, roi, roiModules, op
   const beneficePositif = beneficeNetAnn >= 0;
 
   return (
+    <div id="pdf-content-wrapper" style={{ position: 'absolute', left: '-9999px', top: 0, width: '210mm' }}>
     <div
       id="pdf-content"
       style={{
-        position: 'absolute',
-        left: '-9999px',
-        top: 0,
-        width: '210mm',
+        width: '100%',
         fontFamily: 'system-ui, -apple-system, sans-serif',
         color: P.dark,
         fontSize: '11pt',
@@ -610,7 +634,7 @@ const SoumissionPDF = ({ soumission, etablissements, rabais, roi, roiModules, op
       </div>
 
       {/* ── ACCEPTATION / SIGNATURE ── */}
-      <div style={{ marginTop: 28, paddingTop: 20, borderTop: `1px solid ${P.borderNeutral}`, pageBreakInside: 'avoid' }}>
+      <div className="pdf-signature-block" style={{ marginTop: 28, paddingTop: 20, borderTop: `1px solid ${P.borderNeutral}` }}>
         <div style={{ fontSize: '11pt', fontWeight: 700, color: P.dark, marginBottom: 8 }}>
           Acceptation
         </div>
@@ -639,6 +663,7 @@ const SoumissionPDF = ({ soumission, etablissements, rabais, roi, roiModules, op
         <span style={{ color: P.mintDark }}>{soumission.numero}</span>
         <span>Confidentiel</span>
       </div>
+    </div>
     </div>
   );
 };
