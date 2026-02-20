@@ -170,6 +170,23 @@ const SoumissionPresentation = () => {
           </p>
         </div>
 
+        {/* ── PORTÉE ── */}
+        {(() => {
+          const textePortee = (soumission as any).texte_portee?.trim()
+            || config.texte_portee_defaut
+            || 'Octogone est une solution intégrée de gestion alimentaire conçue pour optimiser vos opérations, réduire vos coûts et éliminer les pertes invisibles de votre service alimentaire.';
+          return (
+            <div className="text-center max-w-2xl mx-auto">
+              <p className="text-xs font-semibold uppercase tracking-widest mb-2" style={{ color: C.fgFaint }}>
+                Portée
+              </p>
+              <p className="text-sm leading-relaxed italic" style={{ color: C.fgMuted }}>
+                {textePortee}
+              </p>
+            </div>
+          );
+        })()}
+
         {/* ══ SECTION "VOS PERTES INVISIBLES" (uniquement si ROI actif) ══ */}
         {hasRoi && (() => {
           const budgetAlimentaire = Number(roi.soumission_roi!.budget_alimentaire || 0);

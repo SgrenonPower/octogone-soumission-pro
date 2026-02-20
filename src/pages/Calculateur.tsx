@@ -183,6 +183,7 @@ const Calculateur = () => {
   });
   const [notes, setNotes] = useState('');
   const [notesPerso, setNotesPerso] = useState('');
+  const [textePortee, setTextePortee] = useState('');
   const [fraisOfferts, setFraisOfferts] = useState(false);
   const [sauvegarde, setSauvegarde] = useState(false);
   const [roiOuvert, setRoiOuvert] = useState(false);
@@ -389,6 +390,7 @@ const Calculateur = () => {
         fraisIntegrationOfferts: fraisOfferts,
         notesInternes: notes,
         notesPersonnalisees: notesPerso.trim(),
+        textePortee: textePortee.trim() || undefined,
         utilisateurId: utilisateur?.id,
         etablissements: calculs.map(c => ({
           segmentId,
@@ -894,18 +896,36 @@ const Calculateur = () => {
               </CardHeader>
             </CollapsibleTrigger>
             <CollapsibleContent>
-              <CardContent className="space-y-2 pt-0">
-                <Label htmlFor="notes-perso" className="text-sm">
-                  Notes personnalisées{' '}
-                  <span className="text-muted-foreground font-normal">(apparaîtront sur la soumission)</span>
-                </Label>
-                <Textarea
-                  id="notes-perso"
-                  placeholder="Ex. : Le rabais volume de 10 % s'applique si les deux établissements participent au projet pilote."
-                  value={notesPerso}
-                  onChange={e => setNotesPerso(e.target.value)}
-                  className="min-h-[96px] resize-y"
-                />
+              <CardContent className="space-y-4 pt-0">
+                <div className="space-y-2">
+                  <Label htmlFor="texte-portee" className="text-sm">
+                    Texte de portée (introduction de la soumission){' '}
+                    <span className="text-muted-foreground font-normal">(optionnel)</span>
+                  </Label>
+                  <Textarea
+                    id="texte-portee"
+                    placeholder={config.texte_portee_defaut || 'Octogone est une solution intégrée de gestion alimentaire…'}
+                    value={textePortee}
+                    onChange={e => setTextePortee(e.target.value)}
+                    className="min-h-[80px] resize-y text-sm"
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    Si vide, le texte par défaut de la configuration sera utilisé.
+                  </p>
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="notes-perso" className="text-sm">
+                    Notes personnalisées{' '}
+                    <span className="text-muted-foreground font-normal">(apparaîtront sur la soumission)</span>
+                  </Label>
+                  <Textarea
+                    id="notes-perso"
+                    placeholder="Ex. : Le rabais volume de 10 % s'applique si les deux établissements participent au projet pilote."
+                    value={notesPerso}
+                    onChange={e => setNotesPerso(e.target.value)}
+                    className="min-h-[96px] resize-y"
+                  />
+                </div>
               </CardContent>
             </CollapsibleContent>
           </Collapsible>

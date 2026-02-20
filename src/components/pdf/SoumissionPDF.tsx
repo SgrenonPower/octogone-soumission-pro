@@ -80,6 +80,9 @@ const SoumissionPDF = ({ soumission, etablissements, rabais, roi, roiModules, op
   const conditionsGenerales = config?.conditions_generales ||
     "Cette soumission est valide pour une période de 30 jours à compter de la date d'émission. Les prix sont exprimés en dollars canadiens et sont sujets à change sans préavis après la date d'expiration. Les frais d'intégration sont payables à la signature du contrat. Le prix mensuel s'applique à compter de la mise en service de chaque établissement.";
   const fraisParEtabConfig = config?.frais_integration ? Number(config.frais_integration) : null;
+  const textePortee = (soumission as any).texte_portee?.trim()
+    || config?.texte_portee_defaut
+    || 'Octogone est une solution intégrée de gestion alimentaire conçue pour optimiser vos opérations, réduire vos coûts et éliminer les pertes invisibles de votre service alimentaire.';
 
   useEffect(() => {
     const style = document.createElement('style');
@@ -177,6 +180,23 @@ const SoumissionPDF = ({ soumission, etablissements, rabais, roi, roiModules, op
         <div style={{ fontSize: '14pt', fontWeight: 700 }}>{soumission.nom_client}</div>
         <div style={{ fontSize: '9pt', color: '#6b7280', marginTop: 2 }}>
           {etablissements.length} établissement{etablissements.length > 1 ? 's' : ''}
+        </div>
+      </div>
+
+      {/* ── PORTÉE ── */}
+      <div className="pdf-no-break" style={{ marginBottom: 24 }}>
+        <div style={{
+          fontSize: '9pt',
+          fontWeight: 700,
+          color: '#1e3a5f',
+          textTransform: 'uppercase',
+          letterSpacing: '0.06em',
+          marginBottom: 6,
+        }}>
+          Portée
+        </div>
+        <div style={{ fontSize: '10pt', color: '#374151', lineHeight: 1.6 }}>
+          {textePortee}
         </div>
       </div>
 
