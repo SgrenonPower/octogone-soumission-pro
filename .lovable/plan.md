@@ -1,262 +1,195 @@
 
-# Authentification Supabase Auth — Plan d'implémentation complet
+# Refonte Stratégique — "Vos Pertes Invisibles" + Enrichissement des soumissions
 
-## Contexte et état actuel
+## Analyse de l'état actuel
 
-L'application utilise un code d'accès hardcodé (`octogone2025`) via `localStorage`. La table `utilisateurs` existe en base avec les colonnes `id`, `nom`, `email`, `role`, `actif`, `created_at` — mais elle n'a **aucune colonne `auth_id`** pour lier à Supabase Auth. La table est vide (aucun utilisateur existant).
+Après lecture complète des fichiers impactés, voici ce qui existe déjà vs. ce qui est vraiment nouveau :
 
-Le client Supabase est déjà configuré avec `persistSession: true` et `autoRefreshToken: true`.
+**Déjà implémenté (ne pas retoucher) :**
+- `supabase-queries.ts` : le join `modules_roi(nom, description)` est déjà en place (lignes 252-258) — aucune modification nécessaire ici
+- `SoumissionPDF.tsx` : la structure "Votre investissement" + prix barrés + 3 cartes + "Ce que vous gagnez" + "Le verdict" existe déjà
+- `SoumissionDetail.tsx` : le bloc "Argument ROI" en haut et les prix barrés dans le tableau existent déjà
+- `SoumissionPresentation.tsx` : la structure avec prix barrés, cartes, ROI et verdict est déjà là
 
----
-
-## Architecture de la solution
-
-La liaison entre Supabase Auth et la table `utilisateurs` se fait via une colonne `auth_id uuid UNIQUE` ajoutée à `utilisateurs`. Cela permet :
-- Chercher le profil utilisateur par `auth_id` (rapide, indexé)
-- Fallback par `email` pour les utilisateurs créés manuellement avant l'ajout de `auth_id`
-- Mise à jour automatique du `auth_id` au premier login si trouvé par email
-
-Un **Edge Function** `create-auth-user` gérera la création de comptes Supabase Auth depuis la page Admin Utilisateurs, car `supabase.auth.admin.createUser()` nécessite la clé `service_role` qui ne doit jamais être exposée côté client.
+**Ce qui est RÉELLEMENT NOUVEAU dans ce prompt :**
+- La **Section "Vos pertes invisibles"** (Section A) — entièrement nouvelle dans les 3 fichiers
+- Elle doit s'insérer AVANT la section "Votre investissement" dans le PDF et la Présentation
+- Elle contient : grille de cartes dynamiques (module → icône + perte + stat choc) + encadré chiffre-choc personnalisé avec le budget alimentaire
 
 ---
 
-## Étapes d'implémentation
+## Ce qui change par fichier
 
-### Étape 1 — Migration base de données
+### 1. `src/components/pdf/SoumissionPDF.tsx` — Ajouter la section "Vos pertes invisibles"
 
-```sql
--- Ajouter auth_id à la table utilisateurs
-ALTER TABLE public.utilisateurs 
-  ADD COLUMN IF NOT EXISTS auth_id uuid UNIQUE;
+Insérer entre le bloc "CLIENT" (ligne ~129) et la "SECTION 1 : VOTRE INVESTISSEMENT" (ligne ~131) un nouveau bloc conditionnel :
 
--- Nettoyer le vieux localStorage octogone_access (rien à faire en SQL)
--- mais on doit s'assurer que les policies RLS restent publiques pour l'instant
--- (pas de Supabase Auth obligatoire sur ces tables, l'auth se fait côté application)
 ```
-
-### Étape 2 — Edge Function `create-auth-user`
-
-Créer `supabase/functions/create-auth-user/index.ts` qui :
-- Reçoit `{ email, password, nom, role }` en POST
-- Valide que l'appelant est authentifié et est admin (via `Authorization` header)
-- Appelle `supabaseAdmin.auth.admin.createUser({ email, password, email_confirm: true })`
-- Met à jour la table `utilisateurs` avec le `auth_id` retourné, OU insère si inexistant
-- Retourne `{ success: true, userId }` ou une erreur
-
-### Étape 3 — Réécriture de `src/hooks/useAuth.ts`
-
-Le hook devient le point central d'authentification :
-
-```ts
-export const useAuth = () => {
-  const [user, setUser] = useState<User | null>(null);         // Supabase Auth user
-  const [utilisateur, setUtilisateur] = useState<Utilisateur | null>(null); // Profil DB
-  const [loading, setLoading] = useState(true);
-
-  // Charge le profil depuis la table utilisateurs
-  const chargerProfil = async (authUser: User) => { ... }
-
-  useEffect(() => {
-    // 1. Nettoyer l'ancien localStorage
-    localStorage.removeItem('octogone_access');
-
-    // 2. Restaurer session existante
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      if (session?.user) chargerProfil(session.user);
-      else setLoading(false);
-    });
-
-    // 3. Écouter les changements
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
-      if (session?.user) chargerProfil(session.user);
-      else { setUser(null); setUtilisateur(null); setLoading(false); }
-    });
-
-    return () => subscription.unsubscribe();
-  }, []);
-
-  const login = async (email: string, password: string) => {
-    const { error } = await supabase.auth.signInWithPassword({ email, password });
-    if (error) return { success: false, error: traduireErreur(error) };
-    return { success: true };
-  };
-
-  const logout = async () => { await supabase.auth.signOut(); };
-
-  return { user, utilisateur, loading, isAdmin: utilisateur?.role === 'admin', login, logout };
-};
-```
-
-La fonction `chargerProfil` :
-1. Cherche dans `utilisateurs` par `auth_id = user.id`
-2. Si non trouvé, cherche par `email = user.email`
-3. Si trouvé par email mais `auth_id` null, met à jour `auth_id`
-4. Si `actif === false` → déconnecte et renvoie erreur
-5. Si non trouvé du tout → déconnecte et renvoie erreur "compte non configuré"
-
-### Étape 4 — Suppression de `src/lib/auth.ts`
-
-Ce fichier est supprimé. Toutes ses références sont remplacées par `useAuth()`.
-
-### Étape 5 — Réécriture de `src/pages/Login.tsx`
-
-Conservation exacte du design (gradient, glassmorphism, cercles décoratifs). Seul le formulaire change :
-- Champ `email` avec icône `Mail` (lucide-react)
-- Champ `mot de passe` avec icône `Lock` et toggle œil (inchangé)
-- Le hook `useAuth()` fournit `login(email, password)`
-- Messages d'erreur français selon le code d'erreur Supabase :
-  - `invalid_credentials` → "Courriel ou mot de passe incorrect."
-  - `compte_inactif` (erreur custom) → "Votre compte a été désactivé. Contactez un administrateur."
-  - réseau → "Erreur de connexion. Veuillez réessayer."
-- Raccourci Enter, spinner "Vérification…" maintenus
-
-### Étape 6 — Réécriture de `src/components/ProtectedRoute.tsx`
-
-```tsx
-const ProtectedRoute = ({ children }) => {
-  const { user, loading } = useAuth();
-
-  if (loading) return <div className="flex h-screen items-center justify-center">
-    <Spinner />
-  </div>;
-
-  if (!user) return <Navigate to="/" replace />;
-
-  return <AppLayout>{children}</AppLayout>;
-};
-```
-
-### Étape 7 — Nouveau composant `AdminRoute`
-
-```tsx
-const AdminRoute = ({ children }) => {
-  const { user, utilisateur, loading } = useAuth();
-  const { toast } = useToast();
-  const navigate = useNavigate();
-
-  if (loading) return <Spinner />;
-  if (!user) return <Navigate to="/" replace />;
-
-  if (!utilisateur || utilisateur.role !== 'admin') {
-    toast({ title: 'Accès réservé aux administrateurs.', variant: 'destructive' });
-    return <Navigate to="/calculateur" replace />;
-  }
-
-  return <AppLayout>{children}</AppLayout>;
-};
-```
-
-### Étape 8 — Modification de `src/App.tsx`
-
-- Supprimer `import { isAuthenticated } from '@/lib/auth'`
-- La route `/` rend toujours `<Login />` (la redirection se fait dans le hook après login réussi)
-- La route `/soumissions/:id/presentation` utilise `<ProtectedRoute>` au lieu de la vérification inline
-- Toutes les routes `/admin/*` utilisent `<AdminRoute>` au lieu de `<ProtectedRoute>`
-
-### Étape 9 — Modification de `src/components/AppLayout.tsx`
-
-Ajouts dans la sidebar :
-- En bas, au-dessus du bouton Déconnexion : bloc avec avatar (initiales), nom et badge role
-- Masquer le lien "Administration" si `!isAdmin`
-- Le bouton Déconnexion appelle `await logout()` puis `navigate('/')`
-
-```tsx
-// Bloc utilisateur dans SidebarContent
-<div className="px-3 pb-2">
-  <div className="flex items-center gap-3 px-3 py-2">
-    <div className="w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold"
-      style={{ background: 'hsl(var(--sidebar-primary) / 0.2)', color: 'hsl(var(--sidebar-primary))' }}>
-      {utilisateur?.nom?.charAt(0)?.toUpperCase() || '?'}
-    </div>
-    <div className="flex-1 min-w-0">
-      <p className="text-xs font-semibold truncate" style={{ color: 'hsl(var(--sidebar-foreground))' }}>
-        {utilisateur?.nom || 'Utilisateur'}
-      </p>
-      <p className="text-xs" style={{ color: 'hsl(var(--sidebar-foreground) / 0.5)' }}>
-        {isAdmin ? 'Administrateur' : 'Vendeur'}
-      </p>
-    </div>
+{hasRoi && (
+  <div className="pdf-page-break pdf-no-break" style={{ ... }}>
+    {/* Titre */}
+    "Ce que vos factures ne vous montrent pas"
+    
+    {/* Sous-titre en italique */}
+    "Vos factures alimentaires vous indiquent combien vous dépensez..."
+    
+    {/* Grille de cartes — fond #FEF2F2, bordure #FECACA */}
+    {modulesSelectionnes.map(m => {
+      const perte = MODULE_TO_PERTE[m.modules_roi?.slug ou nom];
+      return (
+        <div style={{ background: '#FEF2F2', border: '1px solid #FECACA', borderRadius: 8, padding: '12px' }}>
+          {/* icône (texte emoji ou label) */}
+          <div style={{ fontWeight: 700 }}>{perte.titre}</div>
+          <div style={{ fontSize: '9pt', color: '#6b7280' }}>{perte.description}</div>
+          <div style={{ background: '#fee2e2', color: '#dc2626', borderRadius: 4, padding: '3px 8px', fontSize: '8pt', fontWeight: 700 }}>
+            {perte.stat}
+          </div>
+        </div>
+      );
+    })}
+    
+    {/* Chiffre-choc si budget > 0 */}
+    {budgetAlimentaire > 0 && (
+      <div style={{ background: '#fff7ed', border: '1px solid #fed7aa', borderRadius: 8, padding: '14px' }}>
+        "En moyenne... Pour un budget de {budgetAlimentaire} $, cela représente entre
+        {budgetAlimentaire × 0.05} $ et {budgetAlimentaire × 0.15} $..."
+      </div>
+    )}
   </div>
-</div>
+)}
 ```
 
-### Étape 10 — Modification de `src/lib/supabase-queries.ts`
+**Correspondance module → perte** (table de mapping statique dans le fichier) :
+Le mapping se fait par le **nom** du module (ou slug si disponible). Puisque `m.modules_roi?.nom` est disponible via le join, on peut matcher par nom partiel ou slug. La table de mapping est :
 
-Ajouter `utilisateurId?: string` au paramètre de `sauvegarderSoumission` :
+```typescript
+const PERTES_INVISIBLES: Record<string, { titre: string; description: string; stat: string }> = {
+  'thermometres': { titre: 'Bris de chaîne de froid', description: 'Pertes alimentaires dues aux variations de température non détectées', stat: '60 % des cuisines : au moins 1 incident/an' },
+  'produits-recettes': { titre: 'Gaspillage par surproduction', description: 'Sans recettes standardisées, chaque cuisinier prépare "à peu près"', stat: '4 à 10 % des achats alimentaires gaspillés' },
+  'inventaires': { titre: 'Commandes à l\'aveugle', description: 'Sans visibilité sur les stocks, on commande en double ou trop tard', stat: '5 à 10 % des approvisionnements perdus' },
+  'inventaires-temps-reel': { titre: 'Écarts invisibles', description: 'Les incongruités d\'inventaire passent inaperçues pendant des semaines', stat: 'Pertes non détectées pendant des mois' },
+  'facturation': { titre: 'Heures perdues en saisie manuelle', description: 'La facturation papier consomme un temps fou et génère des erreurs', stat: '65 heures/an de travail administratif évitable' },
+  'paniers-commandes': { titre: 'Temps perdu en commandes manuelles', description: 'Chaque responsable passe des heures à commander', stat: '50 heures/an par responsable' },
+  'ressources-humaines': { titre: 'Administration RH manuelle', description: 'Horaires, paies, suivis — tout est fait à la main', stat: '72 heures/an en gestion RH évitable' },
+  'taches-repetitives': { titre: 'Tâches répétées sans automatisation', description: 'Des heures chaque semaine à refaire les mêmes vérifications', stat: '2 à 5 heures/semaine gaspillées' },
+};
+```
 
+Le lookup se fait par `m.modules_roi?.slug` (de la table `modules_roi`, champ `slug` existant) — mais puisque `soumission_roi_modules` fait le join sur `modules_roi(nom, description)` uniquement (pas `slug`), il faut enrichir le select pour inclure aussi `slug`.
+
+**Ajustement dans `supabase-queries.ts` :** modifier le join de :
 ```ts
-.insert({
-  numero: params.numero,
-  nom_client: params.nomClient,
-  ...
-  utilisateur_id: params.utilisateurId || null,  // NOUVEAU
-})
+.select('*, modules_roi(nom, description)')
+```
+vers :
+```ts
+.select('*, modules_roi(nom, description, slug)')
 ```
 
-### Étape 11 — Modification de `src/pages/Calculateur.tsx`
+Le type `SoumissionRoiModule` dans le PDF doit aussi inclure `slug` dans `modules_roi`.
 
-```tsx
-// Ajouter import useAuth
-const { utilisateur } = useAuth();
+### 2. `src/pages/SoumissionPresentation.tsx` — Même section, thème sidebar
 
-// Dans handleSauvegarder, passer utilisateurId
-await sauvegarderSoumission({
-  ...
-  utilisateurId: utilisateur?.id,  // NOUVEAU
-});
-```
+Même logique de mapping, mais avec les couleurs du thème sidebar (C.bg, C.fg, etc.).
 
-### Étape 12 — Modification de `src/pages/admin/Utilisateurs.tsx`
+Les cartes "pertes invisibles" ont un fond rouge-orangé adapté au thème dark :
+- Fond : `rgba(239, 68, 68, 0.12)` (rouge pâle translucide)
+- Bordure : `rgba(239, 68, 68, 0.3)`
+- Stat : `rgba(239, 68, 68, 0.85)` sur fond `rgba(239, 68, 68, 0.2)`
 
-Remplacer la logique de création simple par un appel à l'Edge Function `create-auth-user`. Le dialog de création affiche maintenant un champ mot de passe temporaire. La création insère dans `utilisateurs` ET crée le compte Auth en même temps.
+La section s'insère entre l'en-tête client (bloc "Titre client") et la section "Votre investissement".
 
-Si l'Edge Function échoue, un message clair s'affiche : "Erreur lors de la création du compte. Vérifiez que l'email n'existe pas déjà."
+L'encadré chiffre-choc adapté au thème sidebar :
+- Fond : `rgba(245, 158, 11, 0.08)` (orange très pâle)
+- Bordure : `rgba(245, 158, 11, 0.3)`
+
+### 3. `src/pages/SoumissionDetail.tsx` — Aucune modification requise
+
+Le fichier est déjà complet avec toutes les fonctionnalités requises (prix barrés, synthèse ROI en haut, noms des modules). La section "Vos pertes invisibles" n'est pas demandée pour la vue interne vendeur.
 
 ---
 
-## Fichiers impactés — résumé complet
+## Modifications techniques détaillées
 
-| Fichier | Action |
+### Étape 1 — `src/lib/supabase-queries.ts`
+
+Ligne 256 : changer le select du join pour inclure `slug` :
+```ts
+// Avant :
+.select('*, modules_roi(nom, description)')
+// Après :
+.select('*, modules_roi(nom, description, slug)')
+```
+
+Et mettre à jour le type TypeScript correspondant (ligne 252) :
+```ts
+// Avant :
+{ nom: string; description: string | null } | null
+// Après :
+{ nom: string; description: string | null; slug: string } | null
+```
+
+### Étape 2 — `src/components/pdf/SoumissionPDF.tsx`
+
+1. Mettre à jour le type `SoumissionRoiModule` (ligne 7-9) pour inclure `slug` dans `modules_roi`
+2. Ajouter la constante de mapping `PERTES_INVISIBLES` en dehors du composant
+3. Ajouter une fonction helper `getPerte(slug: string)` pour retrouver la perte par slug
+4. Insérer la section "Vos pertes invisibles" entre le bloc CLIENT et la SECTION 1, conditionnée par `hasRoi`
+5. Le layout de la grille en PDF utilise `display: grid, gridTemplateColumns: '1fr 1fr'` (2 colonnes) pour max 4 cartes
+6. Le budget alimentaire vient de `roi?.budget_alimentaire`
+
+### Étape 3 — `src/pages/SoumissionPresentation.tsx`
+
+1. Ajouter les mêmes imports d'icônes nécessaires (les icônes lucide-react ne fonctionnent pas dans le PDF inline, mais fonctionnent dans la présentation React)
+2. Ajouter la même constante `PERTES_INVISIBLES` (partagée ou dupliquée)
+3. Insérer la section après le bloc "Titre client" (section avec `soumission.nom_client`)
+4. Pour la présentation, utiliser de vraies icônes Lucide-React dans les cartes (Thermometer, BookOpen, Package, BarChart3, FileText, ShoppingCart, Users, Repeat)
+5. Le budget alimentaire vient de `roi.soumission_roi?.budget_alimentaire`
+
+---
+
+## Architecture du mapping module → perte
+
+La correspondance se base sur le champ `slug` de `modules_roi` (déjà en base, déjà utilisé dans `roi-calc.ts`) :
+
+```
+thermometres           → Bris de chaîne de froid
+produits-recettes      → Gaspillage par surproduction  
+inventaires            → Commandes à l'aveugle
+inventaires-temps-reel → Écarts invisibles
+facturation            → Heures perdues en saisie manuelle
+paniers-commandes      → Temps perdu en commandes manuelles
+ressources-humaines    → Administration RH manuelle
+taches-repetitives     → Tâches répétées sans automatisation
+```
+
+---
+
+## Résumé des fichiers modifiés
+
+| Fichier | Modification |
 |---|---|
-| `src/lib/auth.ts` | Supprimer |
-| `src/hooks/useAuth.ts` | Réécrire complètement |
-| `src/pages/Login.tsx` | Réécrire le formulaire (garder le design) |
-| `src/components/ProtectedRoute.tsx` | Réécrire avec useAuth + spinner loading |
-| `src/App.tsx` | Supprimer import auth, ajouter AdminRoute, corriger routes |
-| `src/components/AppLayout.tsx` | Afficher nom/rôle, masquer admin si vendeur |
-| `src/lib/supabase-queries.ts` | Ajouter `utilisateurId` dans sauvegarderSoumission |
-| `src/pages/Calculateur.tsx` | Passer `utilisateur.id` à la sauvegarde |
-| `src/pages/admin/Utilisateurs.tsx` | Appeler Edge Function pour créer compte Auth |
-| `supabase/functions/create-auth-user/index.ts` | Créer (nouvelle Edge Function) |
-| DB migration | Ajouter colonne `auth_id uuid UNIQUE` à `utilisateurs` |
+| `src/lib/supabase-queries.ts` | Ajouter `slug` dans le join `modules_roi(nom, description, slug)` |
+| `src/components/pdf/SoumissionPDF.tsx` | Ajouter section "Vos pertes invisibles" avant "Votre investissement" |
+| `src/pages/SoumissionPresentation.tsx` | Ajouter section "Vos pertes invisibles" avec thème sidebar + icônes Lucide |
+| `src/pages/SoumissionDetail.tsx` | Aucune modification — déjà complet |
 
 ---
 
-## Gestion des edge cases
+## Ce qui ne change PAS
 
-1. **Ancien localStorage `octogone_access`** : nettoyé au montage du hook `useAuth` via `localStorage.removeItem('octogone_access')`
-2. **Auth user sans profil `utilisateurs`** : déconnexion + message "Votre compte n'est pas encore configuré."
-3. **Profil `actif = false`** : déconnexion + message "Votre compte a été désactivé."
-4. **Session expirée** : `onAuthStateChange` détecte l'événement `SIGNED_OUT` → redirect login
-5. **Vendeur sur `/admin`** : `AdminRoute` redirige vers `/calculateur` + toast
-
----
-
-## Création du premier admin
-
-Puisque la table `utilisateurs` est vide et qu'il n'y a pas d'interface d'inscription, le premier admin doit être créé manuellement :
-
-1. Aller dans le backend (Cloud View) → Authentication → Users → "Add user"
-2. Entrer email + mot de passe
-3. Aller dans la page Admin Utilisateurs de l'app et créer le profil correspondant
-4. Ou bien : l'Edge Function `create-auth-user` peut être appelée directement pour créer les deux en même temps depuis la page Admin Utilisateurs.
+- La logique ROI (`roi-calc.ts`)
+- La section "Votre investissement" (prix barrés + 3 cartes) — déjà en place
+- La section "Ce que vous gagnez" (tableau ROI) — déjà en place
+- La section "Le verdict" — déjà en place
+- Les conditions générales, notes, pied de page
+- Les pages Admin, Calculateur, Soumissions (liste)
+- Aucune migration base de données
 
 ---
 
-## Ce qui ne change pas
+## Condition d'affichage de la section "Vos pertes invisibles"
 
-- Tout le calcul de prix, rabais, ROI
-- Le design de toutes les pages (sauf Login : 2 champs au lieu de 1)
-- Les pages admin (tarification, rabais, ROI, historique, config)
-- Le composant PDF et les pages soumissions
-- La sidebar navigation (sauf masquage conditionnel du lien Administration)
+La section s'affiche UNIQUEMENT si `hasRoi` est vrai (des modules ROI sont sélectionnés). Sans ROI actif, toute la section est masquée — conforme à la spec.
+
+L'encadré chiffre-choc personnalisé s'affiche UNIQUEMENT si `budgetAlimentaire > 0`.
