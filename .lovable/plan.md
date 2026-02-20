@@ -1,195 +1,225 @@
 
-# Refonte Stratégique — "Vos Pertes Invisibles" + Enrichissement des soumissions
+# Section "Portée" — Plan d'implémentation
 
 ## Analyse de l'état actuel
 
-Après lecture complète des fichiers impactés, voici ce qui existe déjà vs. ce qui est vraiment nouveau :
+### Ce qui existe déjà (ne pas retoucher)
+- La section "Vos pertes invisibles" — déjà implémentée dans PDF et Présentation
+- La structure complète "Investissement → ROI → Verdict" — en place
+- `notes_personnalisees` dans `soumissions` — déjà présente et sauvegardée
+- `fetchConfig` / `updateConfig` dans `supabase-queries.ts` — prêts à être réutilisés
 
-**Déjà implémenté (ne pas retoucher) :**
-- `supabase-queries.ts` : le join `modules_roi(nom, description)` est déjà en place (lignes 252-258) — aucune modification nécessaire ici
-- `SoumissionPDF.tsx` : la structure "Votre investissement" + prix barrés + 3 cartes + "Ce que vous gagnez" + "Le verdict" existe déjà
-- `SoumissionDetail.tsx` : le bloc "Argument ROI" en haut et les prix barrés dans le tableau existent déjà
-- `SoumissionPresentation.tsx` : la structure avec prix barrés, cartes, ROI et verdict est déjà là
-
-**Ce qui est RÉELLEMENT NOUVEAU dans ce prompt :**
-- La **Section "Vos pertes invisibles"** (Section A) — entièrement nouvelle dans les 3 fichiers
-- Elle doit s'insérer AVANT la section "Votre investissement" dans le PDF et la Présentation
-- Elle contient : grille de cartes dynamiques (module → icône + perte + stat choc) + encadré chiffre-choc personnalisé avec le budget alimentaire
+### Ce qui est NOUVEAU
+1. **Colonne `texte_portee`** dans la table `soumissions` (nullable, text)
+2. **Clé config `texte_portee_defaut`** dans la table `config`
+3. **Champ textarea dans le Calculateur** — optionnel, dans la section Notes
+4. **Bloc "Portée" dans le PDF** — entre le bloc CLIENT et la section "Vos pertes invisibles"
+5. **Bloc "Portée" dans la Présentation** — entre le titre client et la section "Vos pertes invisibles"
+6. **Champ textarea dans AdminConfigSoumissions** — pour modifier le texte par défaut
 
 ---
 
-## Ce qui change par fichier
+## Étapes d'implémentation
 
-### 1. `src/components/pdf/SoumissionPDF.tsx` — Ajouter la section "Vos pertes invisibles"
+### Étape 1 — Migration base de données
 
-Insérer entre le bloc "CLIENT" (ligne ~129) et la "SECTION 1 : VOTRE INVESTISSEMENT" (ligne ~131) un nouveau bloc conditionnel :
+**Deux opérations SQL :**
 
+```sql
+-- 1. Ajouter la colonne texte_portee à la table soumissions
+ALTER TABLE public.soumissions ADD COLUMN texte_portee text;
+
+-- 2. Insérer la clé de config texte_portee_defaut
+INSERT INTO public.config (cle, valeur, categorie, description)
+VALUES (
+  'texte_portee_defaut',
+  'Octogone est une solution intégrée de gestion alimentaire conçue pour optimiser vos opérations, réduire vos coûts et éliminer les pertes invisibles de votre service alimentaire.',
+  'pdf',
+  'Texte de portée par défaut affiché en introduction de chaque soumission'
+);
 ```
-{hasRoi && (
-  <div className="pdf-page-break pdf-no-break" style={{ ... }}>
-    {/* Titre */}
-    "Ce que vos factures ne vous montrent pas"
-    
-    {/* Sous-titre en italique */}
-    "Vos factures alimentaires vous indiquent combien vous dépensez..."
-    
-    {/* Grille de cartes — fond #FEF2F2, bordure #FECACA */}
-    {modulesSelectionnes.map(m => {
-      const perte = MODULE_TO_PERTE[m.modules_roi?.slug ou nom];
-      return (
-        <div style={{ background: '#FEF2F2', border: '1px solid #FECACA', borderRadius: 8, padding: '12px' }}>
-          {/* icône (texte emoji ou label) */}
-          <div style={{ fontWeight: 700 }}>{perte.titre}</div>
-          <div style={{ fontSize: '9pt', color: '#6b7280' }}>{perte.description}</div>
-          <div style={{ background: '#fee2e2', color: '#dc2626', borderRadius: 4, padding: '3px 8px', fontSize: '8pt', fontWeight: 700 }}>
-            {perte.stat}
-          </div>
-        </div>
-      );
-    })}
-    
-    {/* Chiffre-choc si budget > 0 */}
-    {budgetAlimentaire > 0 && (
-      <div style={{ background: '#fff7ed', border: '1px solid #fed7aa', borderRadius: 8, padding: '14px' }}>
-        "En moyenne... Pour un budget de {budgetAlimentaire} $, cela représente entre
-        {budgetAlimentaire × 0.05} $ et {budgetAlimentaire × 0.15} $..."
-      </div>
-    )}
+
+La colonne `texte_portee` est nullable — si elle est NULL ou vide, on utilise le texte de config.
+
+### Étape 2 — `src/lib/supabase-queries.ts`
+
+**Ajouter `texte_portee` au paramètre de `sauvegarderSoumission` :**
+
+```ts
+// Dans l'interface params de sauvegarderSoumission :
+textePortee?: string;  // nouveau champ optionnel
+
+// Dans l'INSERT :
+texte_portee: params.textePortee || null,
+```
+
+**Ajouter `texte_portee` dans la duplication de soumission (`dupliquerSoumission`) :**
+
+```ts
+texte_portee: soumission.texte_portee,  // copier le champ lors d'une duplication
+```
+
+### Étape 3 — `src/pages/Calculateur.tsx`
+
+**Ajouter un état `textePortee` :**
+```ts
+const [textePortee, setTextePortee] = useState('');
+```
+
+**Ajouter le champ dans la section "6. Notes et conditions spéciales"**, juste au-dessus du textarea `notes-perso` existant :
+
+```tsx
+<div className="space-y-2">
+  <Label htmlFor="texte-portee" className="text-sm">
+    Texte de portée (introduction de la soumission){' '}
+    <span className="text-muted-foreground font-normal">(optionnel)</span>
+  </Label>
+  <Textarea
+    id="texte-portee"
+    placeholder={config.texte_portee_defaut || 'Octogone est une solution intégrée…'}
+    value={textePortee}
+    onChange={e => setTextePortee(e.target.value)}
+    className="min-h-[80px] resize-y text-sm"
+  />
+  <p className="text-xs text-muted-foreground">
+    Si vide, le texte par défaut de la configuration sera utilisé.
+  </p>
+</div>
+```
+
+**Passer `textePortee` à `sauvegarderSoumission` :**
+```ts
+textePortee: textePortee.trim() || undefined,
+```
+
+### Étape 4 — `src/components/pdf/SoumissionPDF.tsx`
+
+**Lire le texte de portée** en haut du composant :
+```ts
+const textePortee = (soumission as any).texte_portee?.trim() 
+  || config?.texte_portee_defaut 
+  || 'Octogone est une solution intégrée de gestion alimentaire conçue pour optimiser vos opérations, réduire vos coûts et éliminer les pertes invisibles de votre service alimentaire.';
+```
+
+**Insérer le bloc "Portée" entre le bloc CLIENT (ligne ~182) et la section "Vos pertes invisibles" (ligne ~183) :**
+
+```tsx
+{/* ── PORTÉE ── */}
+<div className="pdf-no-break" style={{ marginBottom: 20 }}>
+  <div style={{
+    fontSize: '9pt',
+    fontWeight: 700,
+    color: '#1e3a5f',
+    textTransform: 'uppercase',
+    letterSpacing: '0.06em',
+    marginBottom: 6,
+  }}>
+    Portée
   </div>
-)}
+  <div style={{ fontSize: '10pt', color: '#374151', lineHeight: 1.6 }}>
+    {textePortee}
+  </div>
+</div>
 ```
 
-**Correspondance module → perte** (table de mapping statique dans le fichier) :
-Le mapping se fait par le **nom** du module (ou slug si disponible). Puisque `m.modules_roi?.nom` est disponible via le join, on peut matcher par nom partiel ou slug. La table de mapping est :
+Style : titre "PORTÉE" en petites majuscules bleu marine, texte en 10pt gris foncé, sans fond ni bordure — sobre et professionnel.
 
-```typescript
-const PERTES_INVISIBLES: Record<string, { titre: string; description: string; stat: string }> = {
-  'thermometres': { titre: 'Bris de chaîne de froid', description: 'Pertes alimentaires dues aux variations de température non détectées', stat: '60 % des cuisines : au moins 1 incident/an' },
-  'produits-recettes': { titre: 'Gaspillage par surproduction', description: 'Sans recettes standardisées, chaque cuisinier prépare "à peu près"', stat: '4 à 10 % des achats alimentaires gaspillés' },
-  'inventaires': { titre: 'Commandes à l\'aveugle', description: 'Sans visibilité sur les stocks, on commande en double ou trop tard', stat: '5 à 10 % des approvisionnements perdus' },
-  'inventaires-temps-reel': { titre: 'Écarts invisibles', description: 'Les incongruités d\'inventaire passent inaperçues pendant des semaines', stat: 'Pertes non détectées pendant des mois' },
-  'facturation': { titre: 'Heures perdues en saisie manuelle', description: 'La facturation papier consomme un temps fou et génère des erreurs', stat: '65 heures/an de travail administratif évitable' },
-  'paniers-commandes': { titre: 'Temps perdu en commandes manuelles', description: 'Chaque responsable passe des heures à commander', stat: '50 heures/an par responsable' },
-  'ressources-humaines': { titre: 'Administration RH manuelle', description: 'Horaires, paies, suivis — tout est fait à la main', stat: '72 heures/an en gestion RH évitable' },
-  'taches-repetitives': { titre: 'Tâches répétées sans automatisation', description: 'Des heures chaque semaine à refaire les mêmes vérifications', stat: '2 à 5 heures/semaine gaspillées' },
-};
-```
+### Étape 5 — `src/pages/SoumissionPresentation.tsx`
 
-Le lookup se fait par `m.modules_roi?.slug` (de la table `modules_roi`, champ `slug` existant) — mais puisque `soumission_roi_modules` fait le join sur `modules_roi(nom, description)` uniquement (pas `slug`), il faut enrichir le select pour inclure aussi `slug`.
-
-**Ajustement dans `supabase-queries.ts` :** modifier le join de :
+**Lire le texte de portée** :
 ```ts
-.select('*, modules_roi(nom, description)')
+const textePortee = (soumission as any).texte_portee?.trim() 
+  || config.texte_portee_defaut 
+  || 'Octogone est une solution intégrée…';
 ```
-vers :
+
+**Insérer le bloc "Portée" entre le bloc "Titre client" (ligne ~160-171) et la section "Vos pertes invisibles" (ligne ~173) :**
+
+```tsx
+{/* Portée */}
+<div className="text-center max-w-2xl mx-auto">
+  <p className="text-xs font-semibold uppercase tracking-widest mb-2" style={{ color: C.fgFaint }}>
+    Portée
+  </p>
+  <p className="text-sm leading-relaxed italic" style={{ color: C.fgMuted }}>
+    {textePortee}
+  </p>
+</div>
+```
+
+Style : centré, italique, sobre — sert d'introduction contextuelle visuelle avant les sections de persuasion.
+
+### Étape 6 — `src/pages/admin/ConfigSoumissions.tsx`
+
+**Ajouter un état `textePortee` :**
 ```ts
-.select('*, modules_roi(nom, description, slug)')
+const [textePortee, setTextePortee] = useState('');
 ```
 
-Le type `SoumissionRoiModule` dans le PDF doit aussi inclure `slug` dans `modules_roi`.
-
-### 2. `src/pages/SoumissionPresentation.tsx` — Même section, thème sidebar
-
-Même logique de mapping, mais avec les couleurs du thème sidebar (C.bg, C.fg, etc.).
-
-Les cartes "pertes invisibles" ont un fond rouge-orangé adapté au thème dark :
-- Fond : `rgba(239, 68, 68, 0.12)` (rouge pâle translucide)
-- Bordure : `rgba(239, 68, 68, 0.3)`
-- Stat : `rgba(239, 68, 68, 0.85)` sur fond `rgba(239, 68, 68, 0.2)`
-
-La section s'insère entre l'en-tête client (bloc "Titre client") et la section "Votre investissement".
-
-L'encadré chiffre-choc adapté au thème sidebar :
-- Fond : `rgba(245, 158, 11, 0.08)` (orange très pâle)
-- Bordure : `rgba(245, 158, 11, 0.3)`
-
-### 3. `src/pages/SoumissionDetail.tsx` — Aucune modification requise
-
-Le fichier est déjà complet avec toutes les fonctionnalités requises (prix barrés, synthèse ROI en haut, noms des modules). La section "Vos pertes invisibles" n'est pas demandée pour la vue interne vendeur.
-
----
-
-## Modifications techniques détaillées
-
-### Étape 1 — `src/lib/supabase-queries.ts`
-
-Ligne 256 : changer le select du join pour inclure `slug` :
+**Ajouter la clé dans `handleSave` :**
 ```ts
-// Avant :
-.select('*, modules_roi(nom, description)')
-// Après :
-.select('*, modules_roi(nom, description, slug)')
+if (textePortee) updates.push({ cle: 'texte_portee_defaut', valeur: textePortee });
 ```
 
-Et mettre à jour le type TypeScript correspondant (ligne 252) :
-```ts
-// Avant :
-{ nom: string; description: string | null } | null
-// Après :
-{ nom: string; description: string | null; slug: string } | null
+**Ajouter un champ textarea dans l'interface**, au début de la Card (avant la durée de validité) :
+
+```tsx
+<div className="space-y-2">
+  <label className="text-sm font-medium">
+    Texte de portée par défaut (affiché en introduction de chaque soumission)
+  </label>
+  <textarea
+    className="w-full min-h-[100px] rounded-md border border-input bg-background px-3 py-2 text-sm resize-y ..."
+    value={textePortee}
+    onChange={e => setTextePortee(e.target.value)}
+    placeholder={config.texte_portee_defaut || 'Octogone est une solution intégrée…'}
+  />
+  {config.texte_portee_defaut && (
+    <details className="text-xs text-muted-foreground">
+      <summary className="cursor-pointer">Voir la valeur actuelle</summary>
+      <p className="mt-1 whitespace-pre-wrap">{config.texte_portee_defaut}</p>
+    </details>
+  )}
+</div>
 ```
 
-### Étape 2 — `src/components/pdf/SoumissionPDF.tsx`
-
-1. Mettre à jour le type `SoumissionRoiModule` (ligne 7-9) pour inclure `slug` dans `modules_roi`
-2. Ajouter la constante de mapping `PERTES_INVISIBLES` en dehors du composant
-3. Ajouter une fonction helper `getPerte(slug: string)` pour retrouver la perte par slug
-4. Insérer la section "Vos pertes invisibles" entre le bloc CLIENT et la SECTION 1, conditionnée par `hasRoi`
-5. Le layout de la grille en PDF utilise `display: grid, gridTemplateColumns: '1fr 1fr'` (2 colonnes) pour max 4 cartes
-6. Le budget alimentaire vient de `roi?.budget_alimentaire`
-
-### Étape 3 — `src/pages/SoumissionPresentation.tsx`
-
-1. Ajouter les mêmes imports d'icônes nécessaires (les icônes lucide-react ne fonctionnent pas dans le PDF inline, mais fonctionnent dans la présentation React)
-2. Ajouter la même constante `PERTES_INVISIBLES` (partagée ou dupliquée)
-3. Insérer la section après le bloc "Titre client" (section avec `soumission.nom_client`)
-4. Pour la présentation, utiliser de vraies icônes Lucide-React dans les cartes (Thermometer, BookOpen, Package, BarChart3, FileText, ShoppingCart, Users, Repeat)
-5. Le budget alimentaire vient de `roi.soumission_roi?.budget_alimentaire`
-
----
-
-## Architecture du mapping module → perte
-
-La correspondance se base sur le champ `slug` de `modules_roi` (déjà en base, déjà utilisé dans `roi-calc.ts`) :
-
-```
-thermometres           → Bris de chaîne de froid
-produits-recettes      → Gaspillage par surproduction  
-inventaires            → Commandes à l'aveugle
-inventaires-temps-reel → Écarts invisibles
-facturation            → Heures perdues en saisie manuelle
-paniers-commandes      → Temps perdu en commandes manuelles
-ressources-humaines    → Administration RH manuelle
-taches-repetitives     → Tâches répétées sans automatisation
+**Mettre à jour la condition `disabled` du bouton Sauvegarder** pour inclure `textePortee` :
+```tsx
+disabled={saving || (!validite && !conditions && !entreprise && !textePortee)}
 ```
 
 ---
 
-## Résumé des fichiers modifiés
+## Fichiers modifiés — résumé
 
-| Fichier | Modification |
-|---|---|
-| `src/lib/supabase-queries.ts` | Ajouter `slug` dans le join `modules_roi(nom, description, slug)` |
-| `src/components/pdf/SoumissionPDF.tsx` | Ajouter section "Vos pertes invisibles" avant "Votre investissement" |
-| `src/pages/SoumissionPresentation.tsx` | Ajouter section "Vos pertes invisibles" avec thème sidebar + icônes Lucide |
-| `src/pages/SoumissionDetail.tsx` | Aucune modification — déjà complet |
-
----
-
-## Ce qui ne change PAS
-
-- La logique ROI (`roi-calc.ts`)
-- La section "Votre investissement" (prix barrés + 3 cartes) — déjà en place
-- La section "Ce que vous gagnez" (tableau ROI) — déjà en place
-- La section "Le verdict" — déjà en place
-- Les conditions générales, notes, pied de page
-- Les pages Admin, Calculateur, Soumissions (liste)
-- Aucune migration base de données
+| Fichier | Action | Détails |
+|---|---|---|
+| Migration SQL | Créer | `ALTER TABLE soumissions ADD COLUMN texte_portee text` + `INSERT INTO config` |
+| `src/lib/supabase-queries.ts` | Modifier | Ajouter `textePortee` dans `sauvegarderSoumission` et `dupliquerSoumission` |
+| `src/pages/Calculateur.tsx` | Modifier | Nouvel état `textePortee` + textarea dans Section 6 + passer à la sauvegarde |
+| `src/components/pdf/SoumissionPDF.tsx` | Modifier | Lire `texte_portee` + insérer bloc "Portée" entre CLIENT et Pertes invisibles |
+| `src/pages/SoumissionPresentation.tsx` | Modifier | Lire `texte_portee` + insérer bloc centré entre Titre client et Pertes invisibles |
+| `src/pages/admin/ConfigSoumissions.tsx` | Modifier | Nouvel état + textarea + clé dans handleSave |
 
 ---
 
-## Condition d'affichage de la section "Vos pertes invisibles"
+## Ce qui ne change pas
 
-La section s'affiche UNIQUEMENT si `hasRoi` est vrai (des modules ROI sont sélectionnés). Sans ROI actif, toute la section est masquée — conforme à la spec.
+- La logique de calcul ROI (`roi-calc.ts`)
+- La section "Vos pertes invisibles" (déjà en place)
+- La section "Votre investissement" et ses cartes
+- La section "Ce que vous gagnez" et le tableau ROI
+- La section "Le verdict"
+- Les pages Admin (sauf ConfigSoumissions)
+- Aucune nouvelle table Supabase — juste 1 colonne + 1 ligne de config
 
-L'encadré chiffre-choc personnalisé s'affiche UNIQUEMENT si `budgetAlimentaire > 0`.
+---
+
+## Condition d'affichage
+
+Le bloc "Portée" s'affiche **toujours** (même sans ROI), car c'est une introduction générale au document. Il utilise en priorité :
+1. `soumission.texte_portee` si non vide
+2. `config.texte_portee_defaut` si disponible
+3. Le texte littéral de fallback en dernier recours
+
+Le champ dans le Calculateur est optionnel et collapsible (dans la section Notes existante).
