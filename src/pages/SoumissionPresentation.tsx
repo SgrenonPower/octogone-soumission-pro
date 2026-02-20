@@ -128,6 +128,28 @@ const SoumissionPresentation = () => {
           ))}
         </div>
 
+        {/* Notes personnalisées */}
+        {(() => {
+          const notesPerso = ((soumission as any).notes_personnalisees || '').trim();
+          const lignes = notesPerso ? notesPerso.split('\n').filter(Boolean) : [];
+          if (!lignes.length) return null;
+          return (
+            <div className="p-5 rounded-2xl border" style={{ background: 'hsl(var(--sidebar-accent) / 0.5)', borderColor: 'hsl(var(--sidebar-border))' }}>
+              <div className="flex items-center gap-2 mb-3">
+                <span>ℹ️</span>
+                <h4 className="font-semibold text-sm" style={{ color: 'hsl(var(--sidebar-foreground))' }}>Notes</h4>
+              </div>
+              <div className="space-y-1">
+                {lignes.map((ligne: string, i: number) => (
+                  <p key={i} className="text-sm" style={{ fontStyle: 'italic', color: 'hsl(var(--sidebar-foreground) / 0.7)' }}>
+                    • {ligne}
+                  </p>
+                ))}
+              </div>
+            </div>
+          );
+        })()}
+
         {/* Rabais */}
         {rabais.length > 0 && (
           <div className="p-6 rounded-2xl" style={{ background: 'hsl(var(--sidebar-accent))' }}>

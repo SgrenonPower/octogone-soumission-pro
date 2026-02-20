@@ -33,7 +33,9 @@ import {
   ParametreRoi,
 } from '@/lib/supabase-queries';
 import { calculerROI, DonneesROI, ResultatROI } from '@/lib/roi-calc';
-import { Plus, Trash2, Save, FileDown, AlertCircle, Building2, TrendingUp, ChevronDown } from 'lucide-react';
+import { Plus, Trash2, Save, FileDown, AlertCircle, Building2, TrendingUp, ChevronDown, ChevronRight } from 'lucide-react';
+import { Collapsible, CollapsibleTrigger, CollapsibleContent } from '@/components/ui/collapsible';
+import { Textarea } from '@/components/ui/textarea';
 import {
   BarChart,
   Bar,
@@ -156,6 +158,7 @@ const Calculateur = () => {
     pilote: false,
   });
   const [notes, setNotes] = useState('');
+  const [notesPerso, setNotesPerso] = useState('');
   const [sauvegarde, setSauvegarde] = useState(false);
   const [roiOuvert, setRoiOuvert] = useState(false);
   const [modulesSelectionnes, setModulesSelectionnes] = useState<Set<string>>(new Set());
@@ -292,6 +295,7 @@ const Calculateur = () => {
         fraisIntegration,
         coutTotalAn1,
         notesInternes: notes,
+        notesPersonnalisees: notesPerso.trim(),
         etablissements: calculs.map(c => ({
           segmentId,
           nomEtablissement: c.etab.nom,
@@ -331,7 +335,7 @@ const Calculateur = () => {
     };
     window.addEventListener('keydown', handler);
     return () => window.removeEventListener('keydown', handler);
-  }, [nomClient, segmentId, etablissements, rabaisState, notes]);
+  }, [nomClient, segmentId, etablissements, rabaisState, notes, notesPerso]);
 
   // ============================================================
   // Rendu
@@ -718,6 +722,43 @@ const Calculateur = () => {
               })()}
             </CardContent>
           )}
+        </Card>
+
+        {/* Section 6 — Notes et conditions spéciales */}
+        <Card>
+          <Collapsible open={!!notesPerso.trim() || undefined} defaultOpen={false}>
+            <CollapsibleTrigger asChild>
+              <CardHeader className="pb-3 cursor-pointer select-none">
+                <div className="flex items-center justify-between">
+                  <CardTitle className="text-base">6. Notes et conditions spéciales</CardTitle>
+                  <div className="flex items-center gap-1 text-muted-foreground">
+                    {notesPerso.trim() && (
+                      <span className="text-xs font-normal px-2 py-0.5 rounded-full"
+                        style={{ background: 'hsl(var(--primary) / 0.1)', color: 'hsl(var(--primary))' }}>
+                        {notesPerso.trim().split('\n').filter(Boolean).length} ligne{notesPerso.trim().split('\n').filter(Boolean).length > 1 ? 's' : ''}
+                      </span>
+                    )}
+                    <ChevronRight className="h-4 w-4 transition-transform [[data-state=open]>&]:rotate-90" />
+                  </div>
+                </div>
+              </CardHeader>
+            </CollapsibleTrigger>
+            <CollapsibleContent>
+              <CardContent className="space-y-2 pt-0">
+                <Label htmlFor="notes-perso" className="text-sm">
+                  Notes personnalisées{' '}
+                  <span className="text-muted-foreground font-normal">(apparaîtront sur la soumission)</span>
+                </Label>
+                <Textarea
+                  id="notes-perso"
+                  placeholder="Ex. : Le rabais volume de 10 % s'applique si les deux établissements participent au projet pilote."
+                  value={notesPerso}
+                  onChange={e => setNotesPerso(e.target.value)}
+                  className="min-h-[96px] resize-y"
+                />
+              </CardContent>
+            </CollapsibleContent>
+          </Collapsible>
         </Card>
 
         {/* Boutons d'action */}
