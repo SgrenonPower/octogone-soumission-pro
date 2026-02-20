@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -69,11 +69,6 @@ interface RabaisDropdownState {
   description: string;
 }
 
-const DEFAUTS_RABAIS: Record<string, number> = {
-  'multi-sites': 15,
-  'volume': 20,
-  'personnalise': 0,
-};
 
 const NOM_TYPE_RABAIS: Record<string, string> = {
   'multi-sites': 'Multi-sites',
@@ -204,7 +199,18 @@ const Calculateur = () => {
     coutGestionDechets: 0,
   });
 
-  // Segment sélectionné
+  // Initialiser les taux horaires depuis la config dès qu'elle est chargée
+  useEffect(() => {
+    if (!config.taux_horaire_cuisine_defaut) return;
+    setDonneesROI(prev => ({
+      ...prev,
+      tauxHoraireCuisine: Number(config.taux_horaire_cuisine_defaut),
+      tauxHoraireAdmin: Number(config.taux_horaire_admin_defaut || prev.tauxHoraireAdmin),
+      tauxHoraireCompta: Number(config.taux_horaire_compta_defaut || prev.tauxHoraireCompta),
+    }));
+  }, [config.taux_horaire_cuisine_defaut, config.taux_horaire_admin_defaut, config.taux_horaire_compta_defaut]);
+
+
   const segment = segments.find(s => s.id === segmentId) || null;
   const paliersSegment = tousLesPaliers.filter(p => p.segment_id === segmentId);
 
@@ -212,6 +218,17 @@ const Calculateur = () => {
   const rabaisToggle = tousLesRabais.filter(r => r.type_ui === 'toggle');
   const rabaisEngagement = rabaisToggle.find(r => r.slug === 'engagement-annuel');
   const rabaisPilote = rabaisToggle.find(r => r.slug === 'projet-pilote');
+
+  // Pourcentages par défaut des rabais dropdown (depuis Supabase)
+  const defautsRabaisDropdown = useMemo(() => {
+    const map: Record<string, number> = { 'personnalise': 0 };
+    tousLesRabais
+      .filter(r => r.type_ui === 'dropdown')
+      .forEach(r => { map[r.slug] = Number(r.pourcentage); });
+    // Alias : volume-500 → volume (nom interne du type UI)
+    if (map['volume-500'] !== undefined) map['volume'] = map['volume-500'];
+    return map;
+  }, [tousLesRabais]);
 
   // Config
   const fraisParEtab = Number(config.frais_integration || 3000);
@@ -594,7 +611,7 @@ const Calculateur = () => {
                     setRabaisDropdown(prev => ({
                       ...prev,
                       type: v,
-                      pourcentage: v === 'aucun' ? 0 : (DEFAUTS_RABAIS[v] ?? prev.pourcentage),
+                      pourcentage: v === 'aucun' ? 0 : (defautsRabaisDropdown[v] ?? prev.pourcentage),
                     }));
                   }}>
                   <SelectTrigger className="flex-1">

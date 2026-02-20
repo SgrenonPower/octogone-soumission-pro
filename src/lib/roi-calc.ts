@@ -58,11 +58,12 @@ export const calculerThermometres = (
   const saisieMax = getParam(params, moduleId, 'economie_saisie_max', 195);
   const reductionPertesAlim = getParam(params, moduleId, 'reduction_pertes_alim', 0.0075);
   const economieEnergieAnn = getParam(params, moduleId, 'economie_energie_annuelle', 480);
+  const reductionDechets = getParam(params, moduleId, 'reduction_dechets', 0.15);
 
   const saisieMoy = (saisieMin + saisieMax) / 2;
   const economiesSaisie = saisieMoy * 12;
   const economiesPertesAlim = donnees.budgetAlimentaire * reductionPertesAlim;
-  const economiesDechets = donnees.coutGestionDechets * 0.15;
+  const economiesDechets = donnees.coutGestionDechets * reductionDechets;
   const economiesEnergie = economieEnergieAnn;
 
   return economiesSaisie + economiesPertesAlim + economiesDechets + economiesEnergie;
@@ -123,7 +124,7 @@ export const calculerFacturation = (
   moduleId: string,
   params: ParametreRoi[],
 ): number => {
-  const heuresEconomisees = getParam(params, moduleId, 'heures_economisees', 65);
+  const heuresEconomisees = getParam(params, moduleId, 'heures_economisees_an', 65);
   return heuresEconomisees * donnees.tauxHoraireCompta;
 };
 
@@ -141,8 +142,8 @@ export const calculerRH = (
   moduleId: string,
   params: ParametreRoi[],
 ): number => {
-  const heuresRH = getParam(params, moduleId, 'heures_rh', 72);
-  const heuresComptaRH = getParam(params, moduleId, 'heures_compta_rh', 12);
+  const heuresRH = getParam(params, moduleId, 'heures_rh_an', 72);
+  const heuresComptaRH = getParam(params, moduleId, 'heures_compta_rh_an', 12);
   return (heuresRH * donnees.tauxHoraireAdmin) + (heuresComptaRH * donnees.tauxHoraireCompta);
 };
 
