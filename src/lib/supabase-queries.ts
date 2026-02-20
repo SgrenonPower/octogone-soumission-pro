@@ -19,6 +19,24 @@ export type SoumissionOption = {
   ordre: number;
 };
 
+// Nouveaux types pour les modules produit
+export type ModuleProduit = {
+  id: string;
+  nom: string;
+  slug: string;
+  description: string | null;
+  ordre: number;
+  actif: boolean | null;
+  created_at: string | null;
+};
+
+export type PrixModuleProduit = {
+  id: string;
+  segment_id: string;
+  module_produit_id: string;
+  prix_unitaire: number;
+};
+
 // ============================================================
 // Segments / Paliers / Rabais / Config
 // ============================================================
@@ -95,6 +113,36 @@ export const updateConfig = async (cle: string, valeur: string): Promise<void> =
     .from('config')
     .update({ valeur, updated_at: new Date().toISOString() })
     .eq('cle', cle);
+  if (error) throw error;
+};
+
+// ============================================================
+// Modules produit (Interface soins, IA)
+// ============================================================
+
+export const fetchModulesProduit = async (): Promise<ModuleProduit[]> => {
+  const { data, error } = await (supabase as any)
+    .from('modules_produit')
+    .select('*')
+    .eq('actif', true)
+    .order('ordre');
+  if (error) throw error;
+  return data || [];
+};
+
+export const fetchPrixModulesProduit = async (): Promise<PrixModuleProduit[]> => {
+  const { data, error } = await (supabase as any)
+    .from('prix_modules_produit')
+    .select('*');
+  if (error) throw error;
+  return data || [];
+};
+
+export const updatePrixModuleProduit = async (id: string, prix_unitaire: number): Promise<void> => {
+  const { error } = await (supabase as any)
+    .from('prix_modules_produit')
+    .update({ prix_unitaire })
+    .eq('id', id);
   if (error) throw error;
 };
 
@@ -216,9 +264,27 @@ export const fetchSoumissionById = async (id: string): Promise<{
 
   if (soumissionRes.error) throw soumissionRes.error;
 
-  const etablissements = (etablissementsRes.data || []).map((e: any) => ({
+  // Charger les modules produit pour chaque établissement
+  const etablissementsRaw = etablissementsRes.data || [];
+  const etabIds = etablissementsRaw.map((e: any) => e.id);
+  let modulesParEtab: Record<string, any[]> = {};
+  if (etabIds.length > 0) {
+    const { data: modulesData } = await (supabase as any)
+      .from('soumission_etablissement_modules')
+      .select('*, modules_produit(nom, slug)')
+      .in('soumission_etablissement_id', etabIds);
+    (modulesData || []).forEach((m: any) => {
+      if (!modulesParEtab[m.soumission_etablissement_id]) {
+        modulesParEtab[m.soumission_etablissement_id] = [];
+      }
+      modulesParEtab[m.soumission_etablissement_id].push(m);
+    });
+  }
+
+  const etablissements = etablissementsRaw.map((e: any) => ({
     ...e,
     segment: e.segments,
+    modules_produit: modulesParEtab[e.id] || [],
   }));
 
   const nomMapRabais: Record<string, string> = {
@@ -229,10 +295,8 @@ export const fetchSoumissionById = async (id: string): Promise<{
 
   const rabais = (rabaisRes.data || []).map((row: any) => {
     if (row.rabais) {
-      // Toggle (engagement, pilote) → vient du join
       return row.rabais;
     } else if (row.type_rabais && row.type_rabais !== 'aucun') {
-      // Dropdown personnalisé → objet synthétique compatible
       return {
         id: row.id,
         nom: nomMapRabais[row.type_rabais] || row.type_rabais,
@@ -424,6 +488,7 @@ export const sauvegarderSoumission = async (params: {
   fraisIntegration: number;
   coutTotalAn1: number;
   fraisIntegrationOfferts: boolean;
+  estRqra?: boolean;
   notesInternes: string;
   notesPersonnalisees: string;
   textePortee?: string;
@@ -435,6 +500,7 @@ export const sauvegarderSoumission = async (params: {
     estPilote: boolean;
     prixBrut: number;
     prixFinal: number;
+    modulesProduitsActifs?: Array<{ moduleId: string; prixUnitaire: number }>;
   }>;
   rabaisToggleIds: string[];
   rabaisDropdown: {
@@ -460,20 +526,22 @@ export const sauvegarderSoumission = async (params: {
       frais_integration: params.fraisIntegration,
       cout_total_an1: params.coutTotalAn1,
       frais_integration_offerts: params.fraisIntegrationOfferts,
+      est_rqra: params.estRqra ?? false,
       notes_internes: params.notesInternes,
       notes_personnalisees: params.notesPersonnalisees,
       texte_portee: params.textePortee || null,
       date_expiration: params.dateExpiration.toISOString(),
       utilisateur_id: params.utilisateurId || null,
-    })
+    } as any)
     .select()
     .single();
 
   if (errSoumission) throw errSoumission;
 
   // Insérer les établissements
+  const etabIds: string[] = [];
   if (params.etablissements.length > 0) {
-    const { error: errEtab } = await supabase
+    const { data: etabData, error: errEtab } = await supabase
       .from('soumission_etablissements')
       .insert(params.etablissements.map(e => ({
         soumission_id: soumission.id,
@@ -483,8 +551,25 @@ export const sauvegarderSoumission = async (params: {
         est_pilote: e.estPilote,
         prix_brut: e.prixBrut,
         prix_final: e.prixFinal,
-      })));
+      })))
+      .select('id');
     if (errEtab) throw errEtab;
+    (etabData || []).forEach(e => etabIds.push(e.id));
+  }
+
+  // Insérer les modules produit par établissement
+  for (let i = 0; i < params.etablissements.length; i++) {
+    const etab = params.etablissements[i];
+    const etabId = etabIds[i];
+    if (etabId && etab.modulesProduitsActifs && etab.modulesProduitsActifs.length > 0) {
+      await (supabase as any).from('soumission_etablissement_modules').insert(
+        etab.modulesProduitsActifs.map(m => ({
+          soumission_etablissement_id: etabId,
+          module_produit_id: m.moduleId,
+          prix_unitaire: m.prixUnitaire,
+        }))
+      );
+    }
   }
 
   // Insérer les rabais

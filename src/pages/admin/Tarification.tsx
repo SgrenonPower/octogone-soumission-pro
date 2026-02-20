@@ -10,11 +10,14 @@ import {
   fetchAllSegments,
   fetchAllPaliers,
   fetchConfig,
+  fetchModulesProduit,
+  fetchPrixModulesProduit,
   updateSegment,
   updatePalier,
   insertPalier,
   deletePalier,
   updateConfig,
+  updatePrixModuleProduit,
   logAudit,
   Segment,
   Palier,
@@ -26,12 +29,16 @@ const AdminTarification = () => {
   const { toast } = useToast();
   const qc = useQueryClient();
   const [editing, setEditing] = useState<Record<string, Partial<Segment & Palier>>>({});
+  const [editingModules, setEditingModules] = useState<Record<string, string>>({}); // prixModuleId → new value
+  const [savingModuleId, setSavingModuleId] = useState<string | null>(null);
   const [newPalier, setNewPalier] = useState<{ segmentId: string; min: string; max: string; tarif: string } | null>(null);
   const [fraisEdit, setFraisEdit] = useState('');
   const [savingFrais, setSavingFrais] = useState(false);
 
   const { data: segments = [] } = useQuery({ queryKey: ['segments-all'], queryFn: fetchAllSegments });
   const { data: paliers = [] } = useQuery({ queryKey: ['paliers-all'], queryFn: fetchAllPaliers });
+  const { data: modulesProduit = [] } = useQuery({ queryKey: ['modules-produit'], queryFn: fetchModulesProduit });
+  const { data: prixModules = [] } = useQuery({ queryKey: ['prix-modules-produit'], queryFn: fetchPrixModulesProduit });
   const { data: config = {} } = useQuery({ queryKey: ['config'], queryFn: fetchConfig });
 
   const segmentRestaurant = segments.find(s => s.type_tarification === 'paliers');
