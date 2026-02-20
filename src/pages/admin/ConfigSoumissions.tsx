@@ -14,6 +14,7 @@ const AdminConfigSoumissions = () => {
   const [validite, setValidite] = useState('');
   const [conditions, setConditions] = useState('');
   const [entreprise, setEntreprise] = useState('');
+  const [textePortee, setTextePortee] = useState('');
   const [saving, setSaving] = useState(false);
 
   const { data: config = {} } = useQuery({ queryKey: ['config'], queryFn: fetchConfig });
@@ -25,12 +26,14 @@ const AdminConfigSoumissions = () => {
       if (validite) updates.push({ cle: 'validite_soumission_jours', valeur: validite });
       if (conditions) updates.push({ cle: 'conditions_generales', valeur: conditions });
       if (entreprise) updates.push({ cle: 'nom_entreprise', valeur: entreprise });
+      if (textePortee) updates.push({ cle: 'texte_portee_defaut', valeur: textePortee });
 
       await Promise.all(updates.map(u => updateConfig(u.cle, u.valeur)));
       qc.invalidateQueries({ queryKey: ['config'] });
       setValidite('');
       setConditions('');
       setEntreprise('');
+      setTextePortee('');
       toast({ title: 'Configuration sauvegardée' });
     } catch {
       toast({ title: 'Erreur', variant: 'destructive' });
@@ -65,6 +68,22 @@ const AdminConfigSoumissions = () => {
           </div>
 
           <div className="space-y-2">
+            <label className="text-sm font-medium">Texte de portée par défaut (introduction de chaque soumission)</label>
+            <textarea
+              className="w-full min-h-[100px] rounded-md border border-input bg-background px-3 py-2 text-sm resize-y focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              value={textePortee}
+              onChange={e => setTextePortee(e.target.value)}
+              placeholder={config.texte_portee_defaut || 'Octogone est une solution intégrée de gestion alimentaire…'}
+            />
+            {config.texte_portee_defaut && (
+              <details className="text-xs text-muted-foreground">
+                <summary className="cursor-pointer">Voir la valeur actuelle</summary>
+                <p className="mt-1 whitespace-pre-wrap">{config.texte_portee_defaut}</p>
+              </details>
+            )}
+          </div>
+
+          <div className="space-y-2">
             <label className="text-sm font-medium">Durée de validité des soumissions (jours)</label>
             <Input
               type="number"
@@ -92,7 +111,7 @@ const AdminConfigSoumissions = () => {
             )}
           </div>
 
-          <Button onClick={handleSave} disabled={saving || (!validite && !conditions && !entreprise)} className="gap-2">
+          <Button onClick={handleSave} disabled={saving || (!validite && !conditions && !entreprise && !textePortee)} className="gap-2">
             <Save className="h-4 w-4" />Sauvegarder les modifications
           </Button>
         </CardContent>

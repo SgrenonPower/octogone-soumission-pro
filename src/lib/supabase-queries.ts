@@ -301,6 +301,7 @@ export const dupliquerSoumission = async (id: string): Promise<string> => {
       frais_integration_offerts: (soumission as any).frais_integration_offerts ?? false,
       notes_internes: soumission.notes_internes,
       notes_personnalisees: (soumission as any).notes_personnalisees,
+      texte_portee: (soumission as any).texte_portee || null,
       parent_id: id,
       date_expiration: soumission.date_expiration,
     })
@@ -425,6 +426,7 @@ export const sauvegarderSoumission = async (params: {
   fraisIntegrationOfferts: boolean;
   notesInternes: string;
   notesPersonnalisees: string;
+  textePortee?: string;
   utilisateurId?: string;
   etablissements: Array<{
     segmentId: string;
@@ -460,6 +462,7 @@ export const sauvegarderSoumission = async (params: {
       frais_integration_offerts: params.fraisIntegrationOfferts,
       notes_internes: params.notesInternes,
       notes_personnalisees: params.notesPersonnalisees,
+      texte_portee: params.textePortee || null,
       date_expiration: params.dateExpiration.toISOString(),
       utilisateur_id: params.utilisateurId || null,
     })
