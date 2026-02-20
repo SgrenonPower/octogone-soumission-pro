@@ -1,77 +1,78 @@
 
-# État de l'implémentation — Tout est déjà en place
+# Audit complet — État de l'implémentation
 
-Après analyse complète du code actuel et de la base de données, **l'ensemble des modifications demandées sont déjà implémentées**. Aucun fichier de code ne nécessite de modification supplémentaire.
+## Résumé
+
+Après lecture complète de chaque fichier concerné et requête directe à la base de données, **l'ensemble des 7 modifications demandées est déjà en place**. Aucune action de développement n'est nécessaire.
 
 ---
 
-## Vérification fichier par fichier
+## Vérification par fichier
 
-### Base de données — COMPLET
-La table `config` contient déjà :
-- `texte_portee_defaut` : "Octogone est une solution intégrée de gestion alimentaire conçue pour optimiser vos opérations, réduire vos coûts et éliminer les pertes invisibles de votre service alimentaire."
-- `conditions_generales` : commence bien par "Les prix sont en dollars canadiens (CAD) et n'incluent pas les taxes applicables (TPS/TVQ)..."
-- La colonne `texte_portee` existe dans la table `soumissions`
+### Base de données — TOUT EST EN PLACE
+
+Requête directe sur `public.config` :
+
+- `conditions_generales` : commence exactement par *"Les prix sont en dollars canadiens (CAD) et n'incluent pas les taxes applicables (TPS/TVQ)..."* — texte complet conforme.
+- `texte_portee_defaut` : présent avec la valeur *"Octogone est une solution intégrée de gestion alimentaire..."*
+- Colonne `texte_portee` : présente dans la table `soumissions` (confirmé par `information_schema.columns`).
 
 ### `src/lib/supabase-queries.ts` — COMPLET
-- Le join `modules_roi(nom, description, slug)` est en place dans `fetchSoumissionById` (ligne 256)
-- Le champ `texte_portee` est inclus dans `sauvegarderSoumission` (ligne 465) et dans `dupliquerSoumission` (ligne 304)
 
-### `src/components/pdf/SoumissionPDF.tsx` — COMPLET
-Structure complète en place :
-1. En-tête
-2. Bloc CLIENT
-3. Bloc PORTÉE (lignes 186-201)
-4. Section "VOS PERTES INVISIBLES" dynamique avec cartes et chiffre-choc (lignes 203-278)
-5. Section "VOTRE INVESTISSEMENT" avec prix barrés et 3 cartes récapitulatives (lignes 280-424)
-6. Section "CE QUE VOUS GAGNEZ" avec vrais noms modules (lignes 426-523)
-7. Section "LE VERDICT" avec paragraphe de conclusion (lignes 506-521)
-8. OPTIONS, NOTES, CONDITIONS (avec TPS/TVQ)
-9. Bloc ACCEPTATION / SIGNATURE (lignes 584-606)
-10. PIED DE PAGE
+- Ligne 256 : `.select('*, modules_roi(nom, description, slug)')` — le join est en place.
+- Ligne 465 : `texte_portee: params.textePortee || null` — la sauvegarde inclut le champ.
+- Ligne 304 : `texte_portee: (soumission as any).texte_portee || null` — la duplication inclut le champ.
 
-### `src/pages/SoumissionPresentation.tsx` — COMPLET
-Même structure que le PDF, sans bloc Acceptation/Signature, avec thème sidebar. Toutes les sections (Portée, Pertes invisibles, Investissement avec prix barrés, ROI, Verdict) sont en place.
+### `src/components/pdf/SoumissionPDF.tsx` — COMPLET (618 lignes)
 
-### `src/pages/SoumissionDetail.tsx` — COMPLET
-- Prix barrés + colonne "Économie" dans le tableau établissements (lignes 266-319)
-- Synthèse ROI (bénéfice net, multiplicateur, période de retour) en haut si ROI actif (lignes 222-252)
-- Tableau ROI avec vrais noms modules (lignes 387-421)
+Structure vérifiée section par section :
+
+1. En-tête (ligne 156)
+2. Bloc CLIENT (ligne 175)
+3. Bloc PORTÉE (lignes 186-201) — texte dynamique avec fallback config
+4. Section "VOS PERTES INVISIBLES" (lignes 203-278) — conditionnel `hasRoi`, grille 2 colonnes, chiffre-choc budget alimentaire
+5. Section "VOTRE INVESTISSEMENT" (lignes 280-424) — tableau avec prix barrés, badges rabais, 3 cartes récapitulatives
+6. Section "CE QUE VOUS GAGNEZ" (lignes 426-523) — tableau ROI avec `m.modules_roi?.nom`, verdict comparatif, paragraphe conclusion
+7. OPTIONS (ligne 525), NOTES (ligne 555)
+8. CONDITIONS GÉNÉRALES (lignes 576-582) — mention TPS/TVQ depuis `config.conditions_generales`
+9. Bloc ACCEPTATION / SIGNATURE (lignes 584-606) — `pageBreakInside: 'avoid'`, lignes Nom, Date, Signature
+10. PIED DE PAGE (ligne 608)
+
+### `src/pages/SoumissionPresentation.tsx` — COMPLET (581 lignes)
+
+- Section PORTÉE (lignes 173-188) — italique centré, fallback config
+- Section "VOS PERTES INVISIBLES" (lignes 190-271) — conditionnel `hasRoi`, cartes avec icônes Lucide, chiffre-choc
+- Section "VOTRE INVESTISSEMENT" (lignes 273-416) — tableau avec prix barrés, badges, 3 cartes
+- Section ROI + VERDICT (lignes 419-522) — vrais noms modules, bloc verdict, paragraphe conclusion
+- PAS de bloc Acceptation/Signature — conforme à la demande
+
+### `src/pages/SoumissionDetail.tsx` — COMPLET (471 lignes)
+
+- Synthèse ROI en haut (lignes 221-252) — 4 cartes : Économies, Investissement, Bénéfice net, ROI multiplicateur
+- Tableau établissements avec prix barrés + colonne Économie (lignes 260-319)
+- Tableau détail ROI avec `m.modules_roi?.nom` (lignes 405-415)
 
 ### `src/pages/Calculateur.tsx` — COMPLET
+
 - État `textePortee` (ligne 186)
-- Textarea "Texte de portée" dans la section Notes (ligne 905)
-- Passage de `textePortee` à `sauvegarderSoumission` (ligne 393)
+- Textarea "Texte de portée" dans Section 6 Notes (lignes 900-915) — avec placeholder depuis config, label optionnel
+- Passage de `textePortee: textePortee.trim() || undefined` dans `sauvegarderSoumission` (ligne 393)
 
 ### `src/pages/admin/ConfigSoumissions.tsx` — COMPLET
+
 - État `textePortee` (ligne 17)
-- Champ textarea "Texte de portée par défaut" (lignes 71-83)
-- Clé `texte_portee_defaut` incluse dans `handleSave` (ligne 29)
-- Condition `disabled` du bouton inclut `textePortee` (ligne 114)
-
----
-
-## Checklist des tests de validation
-
-Tous les points peuvent être validés directement dans l'application :
-
-1. La section "Portée" apparait dans le PDF et la Présentation avec le texte par défaut de la config
-2. Un texte de portée personnalisé dans le Calculateur remplace le défaut dans le PDF
-3. Les conditions générales mentionnent "TPS/TVQ" au début
-4. Le bloc Acceptation/Signature est en bas du PDF uniquement (pas dans la Présentation)
-5. Le texte de portée par défaut est modifiable dans Admin > Config soumissions
-6. Les prix barrés apparaissent dans les soumissions avec rabais
-7. La section pertes invisibles affiche les bonnes cartes selon les modules ROI sélectionnés
-8. Le budget alimentaire personnalise le bloc chiffre-choc
-9. Les modules ROI affichent leurs vrais noms (pas "Module 1")
-10. Le verdict montre le bénéfice net positif en vert
-11. Sans ROI activé, les sections Pertes, ROI et Verdict n'apparaissent pas
+- Champ textarea "Texte de portée par défaut" (lignes 71-83) avec `details` pour voir la valeur actuelle
+- Clé `texte_portee_defaut` dans `handleSave` (ligne 29)
+- Condition `disabled` inclut `textePortee` (ligne 114)
 
 ---
 
 ## Recommandation
 
-Procéder directement aux **tests de validation end-to-end** :
-1. Créer une nouvelle soumission avec texte de portée personnalisé + ROI actif + rabais
-2. Ouvrir le mode Présentation pour vérifier toutes les sections
-3. Générer le PDF (Ctrl+P) pour vérifier la mise en page complète incluant le bloc Acceptation
+Tout le code est prêt. Procéder directement aux **tests de validation end-to-end** :
+
+1. Créer une nouvelle soumission avec segment + 2 établissements + rabais engagement annuel + texte de portée personnalisé
+2. Activer le ROI avec 3 modules et saisir un budget alimentaire
+3. Sauvegarder → ouvrir la page de détail pour vérifier : synthèse ROI, prix barrés, noms de modules corrects
+4. Ouvrir le mode Présentation pour vérifier toutes les sections dans le thème sidebar
+5. Cliquer "Générer le PDF" (Ctrl+P) pour vérifier : bloc Portée, Pertes invisibles, Investissement, ROI, Verdict, Acceptation/Signature, mention TPS/TVQ dans les conditions
