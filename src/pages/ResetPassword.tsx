@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useLocation } from 'react-router-dom';
 import { supabase } from '@/integrations/supabase/client';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -17,52 +17,31 @@ const ResetPassword = () => {
   const [sessionValide, setSessionValide] = useState(false);
   const [verificationSession, setVerificationSession] = useState(true);
   const navigate = useNavigate();
+  const location = useLocation();
 
   useEffect(() => {
+    // Cas 1 : arrivée depuis AuthRedirect avec le flag recovery → session valide immédiatement
+    if ((location.state as any)?.fromRecovery) {
+      setSessionValide(true);
+      setVerificationSession(false);
+      return;
+    }
+
+    // Cas 2 : rechargement de page ou accès direct → vérifier la session active
     let mounted = true;
-    let sub: ReturnType<typeof supabase.auth.onAuthStateChange>['data']['subscription'] | null = null;
 
     const verifier = async () => {
-      // 1. Écouter l'event PASSWORD_RECOVERY (arrive si le hash vient d'être traité)
-      const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
-        if (event === 'PASSWORD_RECOVERY' && mounted) {
-          setSessionValide(true);
-          setVerificationSession(false);
-        }
-        // Si l'utilisateur se connecte normalement sur cette page → rediriger
-        if (event === 'SIGNED_IN' && mounted) {
-          // SIGNED_IN sans PASSWORD_RECOVERY = accès direct non autorisé
-          // On laisse le délai expirer et sessionValide restera false
-        }
-      });
-      sub = subscription;
-
-      // 2. Vérifier si le hash contient type=recovery (lien cliqué depuis l'email)
-      const hash = window.location.hash;
-      const params = new URLSearchParams(hash.replace('#', ''));
-      const typeParam = params.get('type');
-
-      if (typeParam === 'recovery') {
-        // Le hash contient le token de recovery → valider la session
-        const { data: { session } } = await supabase.auth.getSession();
-        if (session && mounted) {
-          setSessionValide(true);
-        }
+      const { data: { session } } = await supabase.auth.getSession();
+      if (session && mounted) {
+        setSessionValide(true);
       }
-
-      // 3. Délai de sécurité pour laisser le temps aux events PASSWORD_RECOVERY d'arriver
-      setTimeout(() => {
-        if (mounted) setVerificationSession(false);
-      }, 1500);
+      if (mounted) setVerificationSession(false);
     };
 
     verifier();
 
-    return () => {
-      mounted = false;
-      sub?.unsubscribe();
-    };
-  }, []);
+    return () => { mounted = false; };
+  }, [location.state]);
 
   const validerPassword = (): string | null => {
     if (!password) return 'Veuillez saisir un nouveau mot de passe.';
