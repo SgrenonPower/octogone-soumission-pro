@@ -13,13 +13,19 @@ interface SoumissionPDFProps {
   roi: SoumissionRoi | null;
   roiModules: SoumissionRoiModule[];
   options?: SoumissionOption[];
+  config?: Record<string, string>;
 }
 
 export const triggerPrint = () => {
   window.print();
 };
 
-const SoumissionPDF = ({ soumission, etablissements, rabais, roi, roiModules, options = [] }: SoumissionPDFProps) => {
+const SoumissionPDF = ({ soumission, etablissements, rabais, roi, roiModules, options = [], config }: SoumissionPDFProps) => {
+  const nomEntreprise = config?.nom_entreprise || 'Octogone 360';
+  const sousTitreEntreprise = config?.sous_titre_entreprise || 'Plateforme de gestion alimentaire';
+  const conditionsGenerales = config?.conditions_generales ||
+    "Cette soumission est valide pour une période de 30 jours à compter de la date d'émission. Les prix sont exprimés en dollars canadiens et sont sujets à change sans préavis après la date d'expiration. Les frais d'intégration sont payables à la signature du contrat. Le prix mensuel s'applique à compter de la mise en service de chaque établissement.";
+  const fraisParEtabConfig = config?.frais_integration ? Number(config.frais_integration) : null;
   useEffect(() => {
     // Inject print CSS
     const style = document.createElement('style');
@@ -65,8 +71,8 @@ const SoumissionPDF = ({ soumission, etablissements, rabais, roi, roiModules, op
       {/* En-tête */}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 32, paddingBottom: 16, borderBottom: '2px solid #1e3a5f' }}>
         <div>
-          <div style={{ fontSize: '22pt', fontWeight: 800, color: '#1e3a5f', marginBottom: 4 }}>Octogone 360</div>
-          <div style={{ fontSize: '9pt', color: '#6b7280' }}>Plateforme de gestion alimentaire</div>
+          <div style={{ fontSize: '22pt', fontWeight: 800, color: '#1e3a5f', marginBottom: 4 }}>{nomEntreprise}</div>
+          <div style={{ fontSize: '9pt', color: '#6b7280' }}>{sousTitreEntreprise}</div>
         </div>
         <div style={{ textAlign: 'right' }}>
           <div style={{ fontSize: '16pt', fontWeight: 700, color: '#1e3a5f', fontFamily: 'monospace' }}>{soumission.numero}</div>
@@ -179,7 +185,11 @@ const SoumissionPDF = ({ soumission, etablissements, rabais, roi, roiModules, op
               </tr>
             ) : (
               <tr style={{ borderBottom: '1px solid #e5e7eb' }}>
-                <td style={{ padding: '8px 12px', color: '#6b7280' }}>Frais d'intégration ({etablissements.length} étab. × 3 000 $)</td>
+                <td style={{ padding: '8px 12px', color: '#6b7280' }}>
+                  {fraisParEtabConfig
+                    ? `Frais d'intégration (${etablissements.length} étab. × ${formatMontant(fraisParEtabConfig)})`
+                    : `Frais d'intégration (${etablissements.length} étab.)`}
+                </td>
                 <td style={{ padding: '8px 12px', textAlign: 'right', fontWeight: 600 }}>{formatMontant(fraisInt)}</td>
               </tr>
             )}
@@ -300,16 +310,13 @@ const SoumissionPDF = ({ soumission, etablissements, rabais, roi, roiModules, op
       <div className="pdf-no-break" style={{ marginTop: 40, paddingTop: 20, borderTop: '1px solid #e5e7eb' }}>
         <div style={{ fontSize: '10pt', fontWeight: 700, marginBottom: 8, color: '#1e3a5f' }}>Conditions générales</div>
         <div style={{ fontSize: '9pt', color: '#6b7280', lineHeight: 1.6 }}>
-          Cette soumission est valide pour une période de 30 jours à compter de la date d'émission.
-          Les prix sont exprimés en dollars canadiens et sont sujets à change sans préavis après la date d'expiration.
-          Les frais d'intégration sont payables à la signature du contrat.
-          Le prix mensuel s'applique à compter de la mise en service de chaque établissement.
+          {conditionsGenerales}
         </div>
       </div>
 
       {/* Pied de page */}
       <div style={{ marginTop: 32, paddingTop: 12, borderTop: '2px solid #1e3a5f', display: 'flex', justifyContent: 'space-between', fontSize: '9pt', color: '#6b7280' }}>
-        <span>Octogone 360</span>
+        <span>{nomEntreprise}</span>
         <span>{soumission.numero}</span>
         <span>Confidentiel</span>
       </div>

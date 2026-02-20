@@ -25,6 +25,7 @@ import { useToast } from '@/hooks/use-toast';
 import { formatMontant, formatDate } from '@/lib/format';
 import {
   fetchSoumissionById,
+  fetchConfig,
   changerStatut,
   supprimerSoumission,
   dupliquerSoumission,
@@ -73,6 +74,11 @@ const SoumissionDetail = () => {
     queryKey: ['soumission', id],
     queryFn: () => fetchSoumissionById(id!),
     enabled: !!id,
+  });
+
+  const { data: configData = {} } = useQuery({
+    queryKey: ['config'],
+    queryFn: fetchConfig,
   });
 
   const handleChangerStatut = async (nouveauStatut: string) => {
@@ -371,6 +377,7 @@ const SoumissionDetail = () => {
           roi={roi.soumission_roi}
           roiModules={roi.modules}
           options={options || []}
+          config={configData}
         />
       )}
 

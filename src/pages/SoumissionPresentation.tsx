@@ -2,7 +2,7 @@ import { useParams, Link } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { Button } from '@/components/ui/button';
 import { formatMontant, formatDate } from '@/lib/format';
-import { fetchSoumissionById } from '@/lib/supabase-queries';
+import { fetchSoumissionById, fetchConfig } from '@/lib/supabase-queries';
 import { X, TrendingUp } from 'lucide-react';
 
 const SoumissionPresentation = () => {
@@ -12,6 +12,11 @@ const SoumissionPresentation = () => {
     queryKey: ['soumission', id],
     queryFn: () => fetchSoumissionById(id!),
     enabled: !!id,
+  });
+
+  const { data: config = {} } = useQuery({
+    queryKey: ['config'],
+    queryFn: fetchConfig,
   });
 
   if (isLoading) {
@@ -41,7 +46,7 @@ const SoumissionPresentation = () => {
             <div className="w-5 h-5 rounded-sm bg-white opacity-90" />
           </div>
           <div>
-            <h1 className="text-lg font-bold" style={{ color: 'hsl(var(--sidebar-foreground))' }}>Octogone 360</h1>
+            <h1 className="text-lg font-bold" style={{ color: 'hsl(var(--sidebar-foreground))' }}>{config.nom_entreprise || 'Octogone 360'}</h1>
             <p className="text-xs" style={{ color: 'hsl(var(--sidebar-primary))' }}>Soumission {soumission.numero}</p>
           </div>
         </div>
@@ -240,7 +245,7 @@ const SoumissionPresentation = () => {
 
       {/* Pied de page */}
       <footer className="px-8 py-4 border-t text-center text-xs" style={{ borderColor: 'hsl(var(--sidebar-border))', color: 'hsl(var(--sidebar-foreground) / 0.4)' }}>
-        Octogone 360 — {soumission.numero} — Valide 30 jours
+        {config.nom_entreprise || 'Octogone 360'} — {soumission.numero} — Valide {config.validite_soumission_jours || 30} jours
       </footer>
     </div>
   );
