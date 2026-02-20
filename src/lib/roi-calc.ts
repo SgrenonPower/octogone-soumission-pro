@@ -56,7 +56,7 @@ export const calculerThermometres = (
 ): number => {
   const saisieMin = getParam(params, moduleId, 'economie_saisie_min', 170);
   const saisieMax = getParam(params, moduleId, 'economie_saisie_max', 195);
-  const reductionPertesAlim = getParam(params, moduleId, 'reduction_pertes_alim', 0.0075);
+  const reductionPertesAlim = getParam(params, moduleId, 'reduction_pertes_alim', 0.15);
   const economieEnergieAnn = getParam(params, moduleId, 'economie_energie_annuelle', 480);
   const reductionDechets = getParam(params, moduleId, 'reduction_dechets', 0.15);
 
@@ -168,8 +168,8 @@ const calculerParSlug: Record<
   'gestion-inventaires': calculerGestionInventaires,
   'inventaires-temps-reel': calculerInventairesTempsReel,
   'facturation': calculerFacturation,
-  'paniers': calculerPaniers,
-  'rh': calculerRH,
+  'paniers-commandes': calculerPaniers,
+  'ressources-humaines': calculerRH,
   'taches-repetitives': calculerTachesRepetitives,
 };
 
