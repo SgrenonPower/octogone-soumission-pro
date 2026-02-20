@@ -310,19 +310,28 @@ export type Database = {
       }
       soumission_rabais: {
         Row: {
+          description_rabais: string | null
           id: string
+          pourcentage_applique: number | null
           rabais_id: string | null
           soumission_id: string
+          type_rabais: string | null
         }
         Insert: {
+          description_rabais?: string | null
           id?: string
+          pourcentage_applique?: number | null
           rabais_id?: string | null
           soumission_id: string
+          type_rabais?: string | null
         }
         Update: {
+          description_rabais?: string | null
           id?: string
+          pourcentage_applique?: number | null
           rabais_id?: string | null
           soumission_id?: string
+          type_rabais?: string | null
         }
         Relationships: [
           {

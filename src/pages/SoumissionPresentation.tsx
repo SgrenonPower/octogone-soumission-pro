@@ -161,10 +161,15 @@ const SoumissionPresentation = () => {
             <h3 className="font-semibold mb-3" style={{ color: 'hsl(var(--sidebar-foreground))' }}>Rabais appliqués</h3>
             <div className="flex flex-wrap gap-2">
               {rabais.map((r: any) => (
-                <span key={r.id} className="px-3 py-1.5 rounded-full text-sm font-medium"
+                <div key={r.id} className="px-3 py-1.5 rounded-full text-sm font-medium"
                   style={{ background: 'hsl(var(--sidebar-primary) / 0.15)', color: 'hsl(var(--sidebar-primary))' }}>
-                  {r.nom} — {r.pourcentage}%
-                </span>
+                  <span>{r.nom} ({r.pourcentage}%)</span>
+                  {r.description_rabais && (
+                    <span className="block text-xs mt-0.5" style={{ fontStyle: 'italic', opacity: 0.75 }}>
+                      {r.description_rabais}
+                    </span>
+                  )}
+                </div>
               ))}
             </div>
           </div>

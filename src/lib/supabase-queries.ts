@@ -212,7 +212,33 @@ export const fetchSoumissionById = async (id: string): Promise<{
     segment: e.segments,
   }));
 
-  const rabais = (rabaisRes.data || []).map((r: any) => r.rabais).filter(Boolean);
+  const nomMapRabais: Record<string, string> = {
+    'multi-sites': 'Multi-sites',
+    'volume': 'Volume',
+    'personnalise': 'Rabais personnalisé',
+  };
+
+  const rabais = (rabaisRes.data || []).map((row: any) => {
+    if (row.rabais) {
+      // Toggle (engagement, pilote) → vient du join
+      return row.rabais;
+    } else if (row.type_rabais && row.type_rabais !== 'aucun') {
+      // Dropdown personnalisé → objet synthétique compatible
+      return {
+        id: row.id,
+        nom: nomMapRabais[row.type_rabais] || row.type_rabais,
+        pourcentage: row.pourcentage_applique,
+        description_rabais: row.description_rabais,
+        slug: row.type_rabais,
+        type_ui: 'dropdown',
+        actif: true,
+        ordre: 0,
+        groupe_exclusion: null,
+        condition_description: row.description_rabais,
+      };
+    }
+    return null;
+  }).filter(Boolean);
 
   let roiModules: Database['public']['Tables']['soumission_roi_modules']['Row'][] = [];
   if (roiRes.data) {
@@ -288,12 +314,20 @@ export const dupliquerSoumission = async (id: string): Promise<string> => {
     );
   }
 
-  // Dupliquer les rabais
-  if (rabais.length > 0) {
+  // Dupliquer les rabais — via les lignes brutes (pas les objets synthétiques)
+  const { data: rabaisOriginaux } = await supabase
+    .from('soumission_rabais')
+    .select('*')
+    .eq('soumission_id', id);
+
+  if (rabaisOriginaux && rabaisOriginaux.length > 0) {
     await supabase.from('soumission_rabais').insert(
-      rabais.map(r => ({
+      (rabaisOriginaux as any[]).map((r: any) => ({
         soumission_id: nouvelle.id,
-        rabais_id: r.id,
+        rabais_id: r.rabais_id,
+        type_rabais: r.type_rabais,
+        pourcentage_applique: r.pourcentage_applique,
+        description_rabais: r.description_rabais,
       }))
     );
   }
@@ -371,7 +405,12 @@ export const sauvegarderSoumission = async (params: {
     prixBrut: number;
     prixFinal: number;
   }>;
-  rabaisIds: string[];
+  rabaisToggleIds: string[];
+  rabaisDropdown: {
+    type: string;
+    pourcentage: number;
+    description: string;
+  };
   dateExpiration: Date;
   roi?: DonneesROISauvegarde;
 }) => {
@@ -411,13 +450,40 @@ export const sauvegarderSoumission = async (params: {
   }
 
   // Insérer les rabais
-  if (params.rabaisIds.length > 0) {
+  const rowsARabais: Array<{
+    soumission_id: string;
+    rabais_id: string | null;
+    type_rabais: string | null;
+    pourcentage_applique: number | null;
+    description_rabais: string | null;
+  }> = [];
+
+  // Toggles (engagement, pilote) → via rabais_id
+  for (const id of params.rabaisToggleIds) {
+    rowsARabais.push({
+      soumission_id: soumission.id,
+      rabais_id: id,
+      type_rabais: null,
+      pourcentage_applique: null,
+      description_rabais: null,
+    });
+  }
+
+  // Rabais dropdown personnalisé
+  if (params.rabaisDropdown.type !== 'aucun') {
+    rowsARabais.push({
+      soumission_id: soumission.id,
+      rabais_id: null,
+      type_rabais: params.rabaisDropdown.type,
+      pourcentage_applique: params.rabaisDropdown.pourcentage,
+      description_rabais: params.rabaisDropdown.description || null,
+    });
+  }
+
+  if (rowsARabais.length > 0) {
     const { error: errRabais } = await supabase
       .from('soumission_rabais')
-      .insert(params.rabaisIds.map(id => ({
-        soumission_id: soumission.id,
-        rabais_id: id,
-      })));
+      .insert(rowsARabais as any);
     if (errRabais) throw errRabais;
   }
 

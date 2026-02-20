@@ -57,8 +57,25 @@ interface Etablissement {
   estPilote: boolean;
 }
 
+interface RabaisDropdownState {
+  type: 'aucun' | 'multi-sites' | 'volume' | 'personnalise';
+  pourcentage: number;
+  description: string;
+}
+
+const DEFAUTS_RABAIS: Record<string, number> = {
+  'multi-sites': 15,
+  'volume': 20,
+  'personnalise': 0,
+};
+
+const NOM_TYPE_RABAIS: Record<string, string> = {
+  'multi-sites': 'Multi-sites',
+  'volume': 'Volume',
+  'personnalise': 'Rabais personnalisé',
+};
+
 interface RabaisState {
-  dropdownId: string | null; // ID du rabais dropdown sélectionné
   engagement: boolean;
   pilote: boolean;
 }
@@ -73,6 +90,7 @@ const calculerPrixEtablissement = (
   paliers: Palier[],
   rabais: RabaisType[],
   rabaisState: RabaisState,
+  rabaisDropdown: RabaisDropdownState,
 ): { prixBrut: number; prixFinal: number } => {
   if (!segment) return { prixBrut: 0, prixFinal: 0 };
 
@@ -94,10 +112,9 @@ const calculerPrixEtablissement = (
   const prixBrut = prixBase;
   let prixFinal = prixBase;
 
-  // Couche 1 : rabais dropdown
-  if (rabaisState.dropdownId) {
-    const r = rabais.find(r => r.id === rabaisState.dropdownId);
-    if (r) prixFinal = prixFinal * (1 - Number(r.pourcentage) / 100);
+  // Couche 1 : rabais dropdown personnalisé
+  if (rabaisDropdown.type !== 'aucun' && rabaisDropdown.pourcentage > 0) {
+    prixFinal = prixFinal * (1 - rabaisDropdown.pourcentage / 100);
   }
 
   // Couche 2 : engagement annuel
@@ -153,9 +170,13 @@ const Calculateur = () => {
     { id: '1', nom: '', nombreUnites: 0, estPilote: false },
   ]);
   const [rabaisState, setRabaisState] = useState<RabaisState>({
-    dropdownId: null,
     engagement: false,
     pilote: false,
+  });
+  const [rabaisDropdown, setRabaisDropdown] = useState<RabaisDropdownState>({
+    type: 'aucun',
+    pourcentage: 0,
+    description: '',
   });
   const [notes, setNotes] = useState('');
   const [notesPerso, setNotesPerso] = useState('');
@@ -180,8 +201,7 @@ const Calculateur = () => {
   const segment = segments.find(s => s.id === segmentId) || null;
   const paliersSegment = tousLesPaliers.filter(p => p.segment_id === segmentId);
 
-  // Rabais dropdown disponibles
-  const rabaisDropdown = tousLesRabais.filter(r => r.type_ui === 'dropdown');
+  // Listes de rabais toggle
   const rabaisToggle = tousLesRabais.filter(r => r.type_ui === 'toggle');
   const rabaisEngagement = rabaisToggle.find(r => r.slug === 'engagement-annuel');
   const rabaisPilote = rabaisToggle.find(r => r.slug === 'projet-pilote');
@@ -221,7 +241,7 @@ const Calculateur = () => {
 
   const calculs = etablissements.map(etab => ({
     etab,
-    ...calculerPrixEtablissement(etab, segment, paliersSegment, tousLesRabais, rabaisState),
+    ...calculerPrixEtablissement(etab, segment, paliersSegment, tousLesRabais, rabaisState, rabaisDropdown),
   }));
 
   const sousTotalMensuel = calculs.reduce((acc, c) => acc + c.prixBrut, 0);
@@ -283,11 +303,17 @@ const Calculateur = () => {
       const dateExpiration = new Date();
       dateExpiration.setDate(dateExpiration.getDate() + validiteJours);
 
-      // Collecter les IDs des rabais appliqués
-      const rabaisIds: string[] = [];
-      if (rabaisState.dropdownId) rabaisIds.push(rabaisState.dropdownId);
-      if (rabaisState.engagement && rabaisEngagement) rabaisIds.push(rabaisEngagement.id);
-      if (rabaisState.pilote && rabaisPilote) rabaisIds.push(rabaisPilote.id);
+      // Validation : rabais > 50%
+      if (rabaisDropdown.pourcentage > 50) {
+        toast({ title: 'Erreur', description: 'Le rabais ne peut pas dépasser 50 %.', variant: 'destructive' });
+        setSauvegarde(false);
+        return;
+      }
+
+      // Toggled rabais (engagement, pilote) → via rabais_id
+      const toggleRabaisIds: string[] = [];
+      if (rabaisState.engagement && rabaisEngagement) toggleRabaisIds.push(rabaisEngagement.id);
+      if (rabaisState.pilote && rabaisPilote) toggleRabaisIds.push(rabaisPilote.id);
 
       await sauvegarderSoumission({
         numero,
@@ -307,7 +333,12 @@ const Calculateur = () => {
           prixBrut: c.prixBrut,
           prixFinal: c.prixFinal,
         })),
-        rabaisIds,
+        rabaisToggleIds: toggleRabaisIds,
+        rabaisDropdown: {
+          type: rabaisDropdown.type,
+          pourcentage: rabaisDropdown.pourcentage,
+          description: rabaisDropdown.description,
+        },
         dateExpiration,
       });
 
@@ -338,7 +369,7 @@ const Calculateur = () => {
     };
     window.addEventListener('keydown', handler);
     return () => window.removeEventListener('keydown', handler);
-  }, [nomClient, segmentId, etablissements, rabaisState, notes, notesPerso, fraisOfferts]);
+  }, [nomClient, segmentId, etablissements, rabaisState, rabaisDropdown, notes, notesPerso, fraisOfferts]);
 
   // ============================================================
   // Rendu
@@ -503,28 +534,54 @@ const Calculateur = () => {
             <CardTitle className="text-base">4. Rabais</CardTitle>
           </CardHeader>
           <CardContent className="space-y-4">
-            {/* Dropdown exclusif */}
+            {/* Rabais volumique — Select + Input % + Description */}
             <div className="space-y-2">
               <Label className="text-sm">Rabais volumique</Label>
-              <Select
-                value={rabaisState.dropdownId || 'aucun'}
-                onValueChange={v => setRabaisState(prev => ({
-                  ...prev,
-                  dropdownId: v === 'aucun' ? null : v,
-                }))}>
-                <SelectTrigger>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="aucun">Aucun</SelectItem>
-                  {rabaisDropdown.map(r => (
-                    <SelectItem key={r.id} value={r.id}>
-                      {r.nom} ({formatPourcentage(Number(r.pourcentage))})
-                      {r.condition_description && ` — ${r.condition_description}`}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+              <div className="flex gap-2">
+                <Select
+                  value={rabaisDropdown.type}
+                  onValueChange={(v: RabaisDropdownState['type']) => {
+                    setRabaisDropdown(prev => ({
+                      ...prev,
+                      type: v,
+                      pourcentage: v === 'aucun' ? 0 : (DEFAUTS_RABAIS[v] ?? prev.pourcentage),
+                    }));
+                  }}>
+                  <SelectTrigger className="flex-1">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="aucun">Aucun</SelectItem>
+                    <SelectItem value="multi-sites">Multi-sites</SelectItem>
+                    <SelectItem value="volume">Volume</SelectItem>
+                    <SelectItem value="personnalise">Rabais personnalisé</SelectItem>
+                  </SelectContent>
+                </Select>
+                <div className="relative flex items-center" style={{ width: 110, flexShrink: 0 }}>
+                  <Input
+                    type="number"
+                    min={0}
+                    max={50}
+                    step={0.5}
+                    value={rabaisDropdown.pourcentage || ''}
+                    disabled={rabaisDropdown.type === 'aucun'}
+                    placeholder="0"
+                    onChange={e => setRabaisDropdown(prev => ({ ...prev, pourcentage: parseFloat(e.target.value) || 0 }))}
+                    className="pr-6"
+                  />
+                  <span className="absolute right-3 text-xs text-muted-foreground pointer-events-none">%</span>
+                </div>
+              </div>
+              {rabaisDropdown.pourcentage > 50 && (
+                <p className="text-xs text-destructive">Le rabais ne peut pas dépasser 50 %</p>
+              )}
+              {rabaisDropdown.type !== 'aucun' && (
+                <Input
+                  placeholder="Description (ex. : si Marc-Aurèle et Humanitae participent)"
+                  value={rabaisDropdown.description}
+                  onChange={e => setRabaisDropdown(prev => ({ ...prev, description: e.target.value }))}
+                />
+              )}
             </div>
 
             {/* Toggles */}
@@ -845,14 +902,22 @@ const Calculateur = () => {
             </div>
 
             {/* Détail des rabais */}
-            {rabaisState.dropdownId && (
-              <div className="flex justify-between text-xs">
-                <span className="text-muted-foreground">
-                  {tousLesRabais.find(r => r.id === rabaisState.dropdownId)?.nom}
-                </span>
-                <span style={{ color: 'hsl(var(--success))' }}>
-                  −{formatPourcentage(Number(tousLesRabais.find(r => r.id === rabaisState.dropdownId)?.pourcentage || 0))}
-                </span>
+            {rabaisDropdown.type !== 'aucun' && (
+              <div>
+                <div className="flex justify-between text-xs">
+                  <span className="text-muted-foreground">
+                    {NOM_TYPE_RABAIS[rabaisDropdown.type] || rabaisDropdown.type}
+                    {rabaisDropdown.pourcentage > 0 && ` (${rabaisDropdown.pourcentage} %)`}
+                  </span>
+                  <span style={{ color: 'hsl(var(--success))' }}>
+                    −{formatMontant(sousTotalMensuel * rabaisDropdown.pourcentage / 100)}
+                  </span>
+                </div>
+                {rabaisDropdown.description && (
+                  <p className="text-xs text-muted-foreground ml-2 mt-0.5 italic">
+                    {rabaisDropdown.description}
+                  </p>
+                )}
               </div>
             )}
             {rabaisState.engagement && rabaisEngagement && (
