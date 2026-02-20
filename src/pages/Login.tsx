@@ -4,33 +4,31 @@ import { useAuth } from '@/hooks/useAuth';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Eye, EyeOff, Lock } from 'lucide-react';
+import { Eye, EyeOff, Lock, Mail } from 'lucide-react';
 
 const Login = () => {
-  const [code, setCode] = useState('');
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
   const [erreur, setErreur] = useState('');
   const [chargement, setChargement] = useState(false);
-  const [afficherCode, setAfficherCode] = useState(false);
-  const { login } = useAuth();
+  const [afficherPassword, setAfficherPassword] = useState(false);
+  const { login, authError } = useAuth();
   const navigate = useNavigate();
 
   const handleSubmit = async () => {
-    if (!code.trim()) {
-      setErreur('Veuillez saisir votre code d\'accès.');
+    if (!email.trim() || !password.trim()) {
+      setErreur('Veuillez remplir tous les champs.');
       return;
     }
     setChargement(true);
     setErreur('');
 
-    // Petit délai pour UX
-    await new Promise(r => setTimeout(r, 400));
-
-    const success = login(code);
-    if (success) {
+    const result = await login(email.trim(), password);
+    if (result.success) {
       navigate('/calculateur');
     } else {
-      setErreur('Code d\'accès incorrect. Veuillez réessayer.');
-      setCode('');
+      setErreur(result.error || 'Erreur de connexion. Veuillez réessayer.');
+      setPassword('');
     }
     setChargement(false);
   };
@@ -38,6 +36,9 @@ const Login = () => {
   const handleKeyDown = (e: KeyboardEvent<HTMLInputElement>) => {
     if (e.key === 'Enter') handleSubmit();
   };
+
+  // Afficher authError (compte inactif, non configuré) si présent
+  const messageErreur = erreur || authError;
 
   return (
     <div className="min-h-screen flex items-center justify-center relative overflow-hidden"
@@ -80,25 +81,26 @@ const Login = () => {
           </div>
 
           {/* Formulaire */}
-          <div className="space-y-5">
+          <div className="space-y-4">
+            {/* Champ courriel */}
             <div className="space-y-2">
-              <Label htmlFor="code-acces" className="text-sm font-medium"
+              <Label htmlFor="email" className="text-sm font-medium"
                 style={{ color: 'hsl(210 40% 80%)' }}>
-                Code d'accès
+                Courriel
               </Label>
               <div className="relative">
                 <div className="absolute left-3 top-1/2 -translate-y-1/2"
                   style={{ color: 'hsl(210 40% 65%)' }}>
-                  <Lock className="h-4 w-4" />
+                  <Mail className="h-4 w-4" />
                 </div>
                 <Input
-                  id="code-acces"
-                  type={afficherCode ? 'text' : 'password'}
-                  value={code}
-                  onChange={e => { setCode(e.target.value); setErreur(''); }}
+                  id="email"
+                  type="email"
+                  value={email}
+                  onChange={e => { setEmail(e.target.value); setErreur(''); }}
                   onKeyDown={handleKeyDown}
-                  placeholder="Entrez votre code d'accès"
-                  className="pl-10 pr-10 h-12 text-sm border-0 focus-visible:ring-1"
+                  placeholder="votre.nom@octogone360.com"
+                  className="pl-10 h-12 text-sm border-0 focus-visible:ring-1"
                   style={{
                     background: 'hsl(0 0% 100% / 0.08)',
                     color: 'hsl(0 0% 100%)',
@@ -106,20 +108,50 @@ const Login = () => {
                   }}
                   autoFocus
                 />
+              </div>
+            </div>
+
+            {/* Champ mot de passe */}
+            <div className="space-y-2">
+              <Label htmlFor="password" className="text-sm font-medium"
+                style={{ color: 'hsl(210 40% 80%)' }}>
+                Mot de passe
+              </Label>
+              <div className="relative">
+                <div className="absolute left-3 top-1/2 -translate-y-1/2"
+                  style={{ color: 'hsl(210 40% 65%)' }}>
+                  <Lock className="h-4 w-4" />
+                </div>
+                <Input
+                  id="password"
+                  type={afficherPassword ? 'text' : 'password'}
+                  value={password}
+                  onChange={e => { setPassword(e.target.value); setErreur(''); }}
+                  onKeyDown={handleKeyDown}
+                  placeholder="Votre mot de passe"
+                  className="pl-10 pr-10 h-12 text-sm border-0 focus-visible:ring-1"
+                  style={{
+                    background: 'hsl(0 0% 100% / 0.08)',
+                    color: 'hsl(0 0% 100%)',
+                    caretColor: 'hsl(var(--accent))',
+                  }}
+                />
                 <button
                   type="button"
-                  onClick={() => setAfficherCode(!afficherCode)}
+                  onClick={() => setAfficherPassword(!afficherPassword)}
                   className="absolute right-3 top-1/2 -translate-y-1/2 transition-opacity hover:opacity-80"
                   style={{ color: 'hsl(210 40% 65%)' }}>
-                  {afficherCode ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                  {afficherPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
                 </button>
               </div>
-              {erreur && (
-                <p className="text-sm font-medium" style={{ color: 'hsl(0 70% 65%)' }}>
-                  {erreur}
-                </p>
-              )}
             </div>
+
+            {/* Message d'erreur */}
+            {messageErreur && (
+              <p className="text-sm font-medium" style={{ color: 'hsl(0 70% 65%)' }}>
+                {messageErreur}
+              </p>
+            )}
 
             <Button
               onClick={handleSubmit}

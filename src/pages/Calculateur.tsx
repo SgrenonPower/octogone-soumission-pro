@@ -1,6 +1,7 @@
 import { useState, useEffect, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
+import { useAuth } from '@/hooks/useAuth';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -143,6 +144,7 @@ const calculerPrixEtablissement = (
 const Calculateur = () => {
   const { toast } = useToast();
   const navigate = useNavigate();
+  const { utilisateur } = useAuth();
 
   // Données depuis Supabase
   const { data: modulesRoi = [] } = useQuery({ queryKey: ['modules-roi'], queryFn: fetchModulesRoi });
@@ -387,6 +389,7 @@ const Calculateur = () => {
         fraisIntegrationOfferts: fraisOfferts,
         notesInternes: notes,
         notesPersonnalisees: notesPerso.trim(),
+        utilisateurId: utilisateur?.id,
         etablissements: calculs.map(c => ({
           segmentId,
           nomEtablissement: c.etab.nom,

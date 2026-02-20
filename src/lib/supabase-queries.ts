@@ -425,6 +425,7 @@ export const sauvegarderSoumission = async (params: {
   fraisIntegrationOfferts: boolean;
   notesInternes: string;
   notesPersonnalisees: string;
+  utilisateurId?: string;
   etablissements: Array<{
     segmentId: string;
     nomEtablissement: string;
@@ -460,6 +461,7 @@ export const sauvegarderSoumission = async (params: {
       notes_internes: params.notesInternes,
       notes_personnalisees: params.notesPersonnalisees,
       date_expiration: params.dateExpiration.toISOString(),
+      utilisateur_id: params.utilisateurId || null,
     })
     .select()
     .single();

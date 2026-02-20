@@ -2,8 +2,7 @@ import { Toaster } from "@/components/ui/toaster";
 import { Toaster as Sonner } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
-import { isAuthenticated } from "@/lib/auth";
+import { BrowserRouter, Routes, Route } from "react-router-dom";
 import Login from "./pages/Login";
 import Calculateur from "./pages/Calculateur";
 import Soumissions from "./pages/Soumissions";
@@ -18,6 +17,7 @@ import AdminUtilisateurs from "./pages/admin/Utilisateurs";
 import AdminHistorique from "./pages/admin/Historique";
 import NotFound from "./pages/NotFound";
 import ProtectedRoute from "./components/ProtectedRoute";
+import AdminRoute from "./components/AdminRoute";
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -35,30 +35,27 @@ const App = () => (
       <Sonner />
       <BrowserRouter>
         <Routes>
-          <Route
-            path="/"
-            element={
-              isAuthenticated() ? <Navigate to="/calculateur" replace /> : <Login />
-            }
-          />
+          {/* Page de login — toujours accessible */}
+          <Route path="/" element={<Login />} />
 
+          {/* Routes protégées */}
           <Route path="/calculateur" element={<ProtectedRoute><Calculateur /></ProtectedRoute>} />
           <Route path="/soumissions" element={<ProtectedRoute><Soumissions /></ProtectedRoute>} />
           <Route path="/soumissions/:id" element={<ProtectedRoute><SoumissionDetail /></ProtectedRoute>} />
 
-          {/* Mode présentation — sans sidebar */}
+          {/* Mode présentation — protégé par ProtectedRoute */}
           <Route path="/soumissions/:id/presentation" element={
-            isAuthenticated() ? <SoumissionPresentation /> : <Navigate to="/" replace />
+            <ProtectedRoute><SoumissionPresentation /></ProtectedRoute>
           } />
 
-          {/* Admin */}
-          <Route path="/admin" element={<ProtectedRoute><Admin /></ProtectedRoute>} />
-          <Route path="/admin/tarification" element={<ProtectedRoute><AdminTarification /></ProtectedRoute>} />
-          <Route path="/admin/rabais" element={<ProtectedRoute><AdminRabais /></ProtectedRoute>} />
-          <Route path="/admin/roi" element={<ProtectedRoute><AdminRoi /></ProtectedRoute>} />
-          <Route path="/admin/soumissions" element={<ProtectedRoute><AdminConfigSoumissions /></ProtectedRoute>} />
-          <Route path="/admin/utilisateurs" element={<ProtectedRoute><AdminUtilisateurs /></ProtectedRoute>} />
-          <Route path="/admin/historique" element={<ProtectedRoute><AdminHistorique /></ProtectedRoute>} />
+          {/* Routes admin — réservées aux administrateurs */}
+          <Route path="/admin" element={<AdminRoute><Admin /></AdminRoute>} />
+          <Route path="/admin/tarification" element={<AdminRoute><AdminTarification /></AdminRoute>} />
+          <Route path="/admin/rabais" element={<AdminRoute><AdminRabais /></AdminRoute>} />
+          <Route path="/admin/roi" element={<AdminRoute><AdminRoi /></AdminRoute>} />
+          <Route path="/admin/soumissions" element={<AdminRoute><AdminConfigSoumissions /></AdminRoute>} />
+          <Route path="/admin/utilisateurs" element={<AdminRoute><AdminUtilisateurs /></AdminRoute>} />
+          <Route path="/admin/historique" element={<AdminRoute><AdminHistorique /></AdminRoute>} />
 
           <Route path="*" element={<NotFound />} />
         </Routes>
