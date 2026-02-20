@@ -19,29 +19,37 @@ const ResetPassword = () => {
   const navigate = useNavigate();
 
   useEffect(() => {
-    // Vérifier que l'on vient bien d'un lien de reset (type=recovery dans le hash)
-    const hash = window.location.hash;
-    const params = new URLSearchParams(hash.replace('#', ''));
-    const type = params.get('type');
+    let mounted = true;
+    let sub: ReturnType<typeof supabase.auth.onAuthStateChange>['data']['subscription'] | null = null;
 
-    if (type === 'recovery') {
-      setSessionValide(true);
-    } else {
-      // Vérifier si une session de recovery est déjà active
-      supabase.auth.onAuthStateChange((event) => {
-        if (event === 'PASSWORD_RECOVERY') {
+    const verifier = async () => {
+      // 1. Écouter l'event PASSWORD_RECOVERY (arrive si le hash vient d'être traité)
+      const { data: { subscription } } = supabase.auth.onAuthStateChange((event) => {
+        if (event === 'PASSWORD_RECOVERY' && mounted) {
           setSessionValide(true);
+          setVerificationSession(false);
         }
       });
+      sub = subscription;
 
-      supabase.auth.getSession().then(({ data: { session } }) => {
-        if (session) {
-          setSessionValide(true);
-        }
-      });
-    }
+      // 2. Vérifier s'il y a déjà une session active (l'event peut avoir déjà été émis)
+      const { data: { session } } = await supabase.auth.getSession();
+      if (session && mounted) {
+        setSessionValide(true);
+      }
 
-    setVerificationSession(false);
+      // 3. Délai de sécurité pour laisser le temps aux events d'arriver
+      setTimeout(() => {
+        if (mounted) setVerificationSession(false);
+      }, 1500);
+    };
+
+    verifier();
+
+    return () => {
+      mounted = false;
+      sub?.unsubscribe();
+    };
   }, []);
 
   const validerPassword = (): string | null => {

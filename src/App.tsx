@@ -20,6 +20,7 @@ import AdminHistorique from "./pages/admin/Historique";
 import NotFound from "./pages/NotFound";
 import ProtectedRoute from "./components/ProtectedRoute";
 import AdminRoute from "./components/AdminRoute";
+import AuthRedirect from "./components/AuthRedirect";
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -36,6 +37,7 @@ const App = () => (
       <Toaster />
       <Sonner />
       <BrowserRouter>
+        <AuthRedirect />
         <Routes>
           {/* Pages publiques */}
           <Route path="/" element={<Login />} />
