@@ -1,69 +1,77 @@
 
-# Ajout mention TPS/TVQ + Bloc Acceptation/Signature
+# État de l'implémentation — Tout est déjà en place
 
-## État actuel — Ce qui est déjà en place
-
-Après lecture complète du fichier `SoumissionPDF.tsx` (594 lignes), voici ce qui existe :
-
-- Sections A ("Vos pertes invisibles"), B ("Votre investissement"), C ("Ce que vous gagnez") et D ("Le verdict") — toutes déjà implémentées dans le PDF et la Présentation
-- Section "Portée" — déjà en place
-- Section "Conditions générales" (lignes 576-582) — texte actuel sans mention TPS/TVQ
-- Pied de page (lignes 584-589) — directement après les conditions
-
-## Ce qui est NOUVEAU dans cette demande
-
-Deux changements ciblés uniquement :
-
-### 1. Mention TPS/TVQ dans les conditions générales
-
-Le texte actuel du fallback (ligne 80-81) ne mentionne pas les taxes. Le texte dans la DB non plus.
-
-**Nouveau texte complet :**
-```
-Les prix sont en dollars canadiens (CAD) et n'incluent pas les taxes applicables (TPS/TVQ). Cette soumission est valide pour une période de 30 jours à compter de la date d'émission. Les prix sont sujets à changement sans préavis après la date d'expiration. Les frais d'intégration sont payables à la signature du contrat. Le prix mensuel s'applique à compter de la mise en service de chaque établissement.
-```
-
-Changements requis :
-- **Migration SQL** : `UPDATE public.config SET valeur = '...' WHERE cle = 'conditions_generales'`
-- **Code** (`SoumissionPDF.tsx`, ligne 81) : mettre à jour la valeur de fallback identique au texte DB
-
-### 2. Bloc Acceptation / Signature (PDF uniquement)
-
-À insérer entre le bloc "CONDITIONS" (qui se termine à la ligne 582) et le "PIED DE PAGE" (qui commence à la ligne 584).
-
-Structure visuelle :
-```
-Acceptation
-───────────
-En signant ce document, le client confirme avoir pris connaissance des
-termes et conditions et accepte la présente soumission.
-
-Nom : ________________________________    Date : ____ / ____ / ______
-
-Signature : ___________________________
-```
-
-Styles :
-- `pageBreakInside: 'avoid'` pour éviter la coupure entre deux pages
-- Titre "Acceptation" : 11pt, gras, `#1e3a5f`
-- Texte descriptif : 9pt, gris (`#6b7280`)
-- Lignes de signature : créées avec des `border-bottom` sur des `span` inline pour un rendu propre à l'impression
-- Séparateur : `borderTop: '1px solid #e5e7eb'` identique aux conditions
-
-Ce bloc **n'est pas ajouté** dans `SoumissionPresentation.tsx` ni dans `SoumissionDetail.tsx`.
+Après analyse complète du code actuel et de la base de données, **l'ensemble des modifications demandées sont déjà implémentées**. Aucun fichier de code ne nécessite de modification supplémentaire.
 
 ---
 
-## Fichiers modifiés
+## Vérification fichier par fichier
 
-| Fichier | Action |
-|---|---|
-| Migration SQL | `UPDATE config SET valeur = '...' WHERE cle = 'conditions_generales'` |
-| `src/components/pdf/SoumissionPDF.tsx` | 1. Mettre à jour le texte fallback ligne 81 ; 2. Insérer le bloc Acceptation entre lignes 582 et 584 |
+### Base de données — COMPLET
+La table `config` contient déjà :
+- `texte_portee_defaut` : "Octogone est une solution intégrée de gestion alimentaire conçue pour optimiser vos opérations, réduire vos coûts et éliminer les pertes invisibles de votre service alimentaire."
+- `conditions_generales` : commence bien par "Les prix sont en dollars canadiens (CAD) et n'incluent pas les taxes applicables (TPS/TVQ)..."
+- La colonne `texte_portee` existe dans la table `soumissions`
 
-## Ce qui ne change PAS
+### `src/lib/supabase-queries.ts` — COMPLET
+- Le join `modules_roi(nom, description, slug)` est en place dans `fetchSoumissionById` (ligne 256)
+- Le champ `texte_portee` est inclus dans `sauvegarderSoumission` (ligne 465) et dans `dupliquerSoumission` (ligne 304)
 
-- `SoumissionPresentation.tsx` — aucune modification
-- `SoumissionDetail.tsx` — aucune modification
-- Toutes les sections A/B/C/D déjà implémentées
-- La page Admin ConfigSoumissions — le champ conditions générales existant permet déjà de modifier ce texte via l'interface
+### `src/components/pdf/SoumissionPDF.tsx` — COMPLET
+Structure complète en place :
+1. En-tête
+2. Bloc CLIENT
+3. Bloc PORTÉE (lignes 186-201)
+4. Section "VOS PERTES INVISIBLES" dynamique avec cartes et chiffre-choc (lignes 203-278)
+5. Section "VOTRE INVESTISSEMENT" avec prix barrés et 3 cartes récapitulatives (lignes 280-424)
+6. Section "CE QUE VOUS GAGNEZ" avec vrais noms modules (lignes 426-523)
+7. Section "LE VERDICT" avec paragraphe de conclusion (lignes 506-521)
+8. OPTIONS, NOTES, CONDITIONS (avec TPS/TVQ)
+9. Bloc ACCEPTATION / SIGNATURE (lignes 584-606)
+10. PIED DE PAGE
+
+### `src/pages/SoumissionPresentation.tsx` — COMPLET
+Même structure que le PDF, sans bloc Acceptation/Signature, avec thème sidebar. Toutes les sections (Portée, Pertes invisibles, Investissement avec prix barrés, ROI, Verdict) sont en place.
+
+### `src/pages/SoumissionDetail.tsx` — COMPLET
+- Prix barrés + colonne "Économie" dans le tableau établissements (lignes 266-319)
+- Synthèse ROI (bénéfice net, multiplicateur, période de retour) en haut si ROI actif (lignes 222-252)
+- Tableau ROI avec vrais noms modules (lignes 387-421)
+
+### `src/pages/Calculateur.tsx` — COMPLET
+- État `textePortee` (ligne 186)
+- Textarea "Texte de portée" dans la section Notes (ligne 905)
+- Passage de `textePortee` à `sauvegarderSoumission` (ligne 393)
+
+### `src/pages/admin/ConfigSoumissions.tsx` — COMPLET
+- État `textePortee` (ligne 17)
+- Champ textarea "Texte de portée par défaut" (lignes 71-83)
+- Clé `texte_portee_defaut` incluse dans `handleSave` (ligne 29)
+- Condition `disabled` du bouton inclut `textePortee` (ligne 114)
+
+---
+
+## Checklist des tests de validation
+
+Tous les points peuvent être validés directement dans l'application :
+
+1. La section "Portée" apparait dans le PDF et la Présentation avec le texte par défaut de la config
+2. Un texte de portée personnalisé dans le Calculateur remplace le défaut dans le PDF
+3. Les conditions générales mentionnent "TPS/TVQ" au début
+4. Le bloc Acceptation/Signature est en bas du PDF uniquement (pas dans la Présentation)
+5. Le texte de portée par défaut est modifiable dans Admin > Config soumissions
+6. Les prix barrés apparaissent dans les soumissions avec rabais
+7. La section pertes invisibles affiche les bonnes cartes selon les modules ROI sélectionnés
+8. Le budget alimentaire personnalise le bloc chiffre-choc
+9. Les modules ROI affichent leurs vrais noms (pas "Module 1")
+10. Le verdict montre le bénéfice net positif en vert
+11. Sans ROI activé, les sections Pertes, ROI et Verdict n'apparaissent pas
+
+---
+
+## Recommandation
+
+Procéder directement aux **tests de validation end-to-end** :
+1. Créer une nouvelle soumission avec texte de portée personnalisé + ROI actif + rabais
+2. Ouvrir le mode Présentation pour vérifier toutes les sections
+3. Générer le PDF (Ctrl+P) pour vérifier la mise en page complète incluant le bloc Acceptation
