@@ -3,107 +3,109 @@
 @tailwind utilities;
 
 /* Definition of the design system — Octogone 360
-   Palette : bleu marine professionnel
+   Palette : identité visuelle du site Octogone
+   Fond sombre anthracite + accent vert menthe
    All colors MUST be HSL.
 */
 
 @layer base {
   :root {
-    /* Fond clair principal */
-    --background: 210 20% 98%;
-    --foreground: 215 40% 12%;
+    /* Fond sombre Octogone */
+    --background: 150 8% 10%;
+    --foreground: 0 0% 95%;
 
-    --card: 0 0% 100%;
-    --card-foreground: 215 40% 12%;
+    --card: 150 8% 13%;
+    --card-foreground: 0 0% 95%;
 
-    --popover: 0 0% 100%;
-    --popover-foreground: 215 40% 12%;
+    --popover: 150 8% 12%;
+    --popover-foreground: 0 0% 95%;
 
-    /* Bleu marine Octogone */
-    --primary: 217 71% 28%;
-    --primary-foreground: 210 40% 98%;
+    /* Vert menthe Octogone — accent signature */
+    --primary: 142 55% 78%;
+    --primary-foreground: 150 8% 8%;
 
-    --secondary: 210 20% 94%;
-    --secondary-foreground: 217 71% 28%;
+    --secondary: 150 6% 18%;
+    --secondary-foreground: 0 0% 90%;
 
-    --muted: 210 20% 94%;
-    --muted-foreground: 215 20% 48%;
+    --muted: 150 6% 16%;
+    --muted-foreground: 150 5% 55%;
 
-    --accent: 211 80% 56%;
-    --accent-foreground: 0 0% 100%;
+    --accent: 142 55% 78%;
+    --accent-foreground: 150 8% 8%;
 
-    --destructive: 0 84% 60%;
-    --destructive-foreground: 210 40% 98%;
+    --destructive: 0 72% 58%;
+    --destructive-foreground: 0 0% 100%;
 
-    --success: 142 72% 35%;
-    --success-foreground: 0 0% 100%;
+    --success: 142 60% 50%;
+    --success-foreground: 150 8% 8%;
 
-    --warning: 38 92% 50%;
-    --warning-foreground: 0 0% 100%;
+    --warning: 38 92% 55%;
+    --warning-foreground: 150 8% 8%;
 
-    --border: 214 25% 88%;
-    --input: 214 25% 88%;
-    --ring: 217 71% 28%;
+    --border: 150 6% 20%;
+    --input: 150 6% 20%;
+    --ring: 142 55% 78%;
 
     --radius: 0.5rem;
 
-    /* Sidebar bleu marine foncé */
-    --sidebar-background: 217 71% 20%;
-    --sidebar-foreground: 210 40% 90%;
-    --sidebar-primary: 211 80% 56%;
-    --sidebar-primary-foreground: 0 0% 100%;
-    --sidebar-accent: 217 71% 27%;
-    --sidebar-accent-foreground: 210 40% 95%;
-    --sidebar-border: 217 60% 28%;
-    --sidebar-ring: 211 80% 56%;
+    /* Sidebar — fond anthracite profond */
+    --sidebar-background: 150 9% 7%;
+    --sidebar-foreground: 150 5% 75%;
+    --sidebar-primary: 142 55% 78%;
+    --sidebar-primary-foreground: 150 8% 8%;
+    --sidebar-accent: 150 8% 13%;
+    --sidebar-accent-foreground: 0 0% 92%;
+    --sidebar-border: 150 6% 14%;
+    --sidebar-ring: 142 55% 78%;
 
     /* Gradients */
-    --gradient-hero: linear-gradient(135deg, hsl(217 71% 18%), hsl(217 71% 28%), hsl(211 80% 38%));
-    --gradient-card: linear-gradient(135deg, hsl(217 71% 28%), hsl(211 80% 42%));
+    --gradient-hero: linear-gradient(135deg, hsl(150 9% 7%), hsl(150 8% 12%), hsl(142 20% 16%));
+    --gradient-card: linear-gradient(135deg, hsl(150 8% 13%), hsl(142 12% 18%));
 
     /* Ombres */
-    --shadow-sm: 0 1px 3px hsl(217 71% 28% / 0.1);
-    --shadow-md: 0 4px 12px hsl(217 71% 28% / 0.12);
-    --shadow-lg: 0 10px 30px hsl(217 71% 28% / 0.15);
+    --shadow-sm: 0 1px 3px hsl(0 0% 0% / 0.3);
+    --shadow-md: 0 4px 12px hsl(0 0% 0% / 0.35);
+    --shadow-lg: 0 10px 30px hsl(0 0% 0% / 0.4);
   }
 
+  /* Le mode dark = même palette (l'app est déjà dark par défaut) */
   .dark {
-    --background: 217 50% 8%;
-    --foreground: 210 40% 95%;
+    --background: 150 8% 10%;
+    --foreground: 0 0% 95%;
 
-    --card: 217 45% 12%;
-    --card-foreground: 210 40% 95%;
+    --card: 150 8% 13%;
+    --card-foreground: 0 0% 95%;
 
-    --popover: 217 45% 12%;
-    --popover-foreground: 210 40% 95%;
+    --popover: 150 8% 12%;
+    --popover-foreground: 0 0% 95%;
 
-    --primary: 211 80% 56%;
-    --primary-foreground: 0 0% 100%;
+    --primary: 142 55% 78%;
+    --primary-foreground: 150 8% 8%;
 
-    --secondary: 217 40% 18%;
-    --secondary-foreground: 210 40% 95%;
+    --secondary: 150 6% 18%;
+    --secondary-foreground: 0 0% 90%;
 
-    --muted: 217 40% 18%;
-    --muted-foreground: 215 20% 60%;
+    --muted: 150 6% 16%;
+    --muted-foreground: 150 5% 55%;
 
-    --accent: 211 80% 56%;
-    --accent-foreground: 0 0% 100%;
+    --accent: 142 55% 78%;
+    --accent-foreground: 150 8% 8%;
 
-    --destructive: 0 62% 45%;
-    --destructive-foreground: 210 40% 98%;
+    --destructive: 0 72% 58%;
+    --destructive-foreground: 0 0% 100%;
 
-    --border: 217 40% 20%;
-    --input: 217 40% 20%;
-    --ring: 211 80% 56%;
+    --border: 150 6% 20%;
+    --input: 150 6% 20%;
+    --ring: 142 55% 78%;
 
-    --sidebar-background: 217 55% 10%;
-    --sidebar-foreground: 210 40% 90%;
-    --sidebar-primary: 211 80% 56%;
-    --sidebar-primary-foreground: 0 0% 100%;
-    --sidebar-accent: 217 50% 16%;
-    --sidebar-accent-foreground: 210 40% 95%;
-    --sidebar-border: 217 45% 16%;
-    --sidebar-ring: 211 80% 56%;
+    --sidebar-background: 150 9% 7%;
+    --sidebar-foreground: 150 5% 75%;
+    --sidebar-primary: 142 55% 78%;
+    --sidebar-primary-foreground: 150 8% 8%;
+    --sidebar-accent: 150 8% 13%;
+    --sidebar-accent-foreground: 0 0% 92%;
+    --sidebar-border: 150 6% 14%;
+    --sidebar-ring: 142 55% 78%;
   }
 }
 
@@ -126,20 +128,10 @@
     background: hsl(var(--muted));
   }
   ::-webkit-scrollbar-thumb {
-    background: hsl(var(--primary) / 0.4);
+    background: hsl(var(--primary) / 0.35);
     border-radius: 3px;
   }
   ::-webkit-scrollbar-thumb:hover {
-    background: hsl(var(--primary) / 0.7);
-  }
-}
-
-@layer base {
-  * {
-    @apply border-border;
-  }
-
-  body {
-    @apply bg-background text-foreground;
+    background: hsl(var(--primary) / 0.6);
   }
 }
