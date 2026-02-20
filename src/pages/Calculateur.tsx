@@ -57,6 +57,12 @@ interface Etablissement {
   estPilote: boolean;
 }
 
+interface OptionSupplementaire {
+  id: string;
+  nom: string;
+  prixDescription: string;
+}
+
 interface RabaisDropdownState {
   type: 'aucun' | 'multi-sites' | 'volume' | 'personnalise';
   pourcentage: number;
@@ -184,6 +190,7 @@ const Calculateur = () => {
   const [sauvegarde, setSauvegarde] = useState(false);
   const [roiOuvert, setRoiOuvert] = useState(false);
   const [modulesSelectionnes, setModulesSelectionnes] = useState<Set<string>>(new Set());
+  const [options, setOptions] = useState<OptionSupplementaire[]>([]);
   const [donneesROI, setDonneesROI] = useState<DonneesROI>({
     nbEtablissements: 1,
     budgetAlimentaire: 0,
@@ -210,6 +217,18 @@ const Calculateur = () => {
   const fraisParEtab = Number(config.frais_integration || 3000);
   const validiteJours = Number(config.validite_soumission_jours || 30);
 
+  // Options pré-configurées depuis config
+  const optionsDefaut: Array<{ nom: string; prixDescription: string }> = (() => {
+    try {
+      return JSON.parse(config.options_supplementaires_defaut || '[]');
+    } catch {
+      return [
+        { nom: 'Thermomètres connectés', prixDescription: '50 $ / unité / mois' },
+        { nom: "Banque d'heures de formation", prixDescription: '150 $ / heure' },
+      ];
+    }
+  })();
+
   // ---- Handlers établissements ----
 
   const ajouterEtablissement = () => {
@@ -235,6 +254,28 @@ const Calculateur = () => {
       ...e,
       estPilote: e.id === id ? !e.estPilote : false, // max 1 pilote
     })));
+  };
+
+  // ---- Handlers options supplémentaires ----
+
+  const ajouterOption = (suggestion?: { nom: string; prixDescription: string }) => {
+    if (options.length >= 10) return;
+    setOptions(prev => [
+      ...prev,
+      {
+        id: Date.now().toString(),
+        nom: suggestion?.nom || '',
+        prixDescription: suggestion?.prixDescription || '',
+      },
+    ]);
+  };
+
+  const supprimerOption = (id: string) => {
+    setOptions(prev => prev.filter(o => o.id !== id));
+  };
+
+  const majOption = (id: string, champ: 'nom' | 'prixDescription', valeur: string) => {
+    setOptions(prev => prev.map(o => o.id === id ? { ...o, [champ]: valeur } : o));
   };
 
   // ---- Calculs récapitulatifs ----
@@ -296,6 +337,10 @@ const Calculateur = () => {
       toast({ title: 'Erreur', description: 'Le nombre d\'unités doit être d\'au moins 1 pour chaque établissement.', variant: 'destructive' });
       return;
     }
+    if (options.some(o => !o.nom.trim())) {
+      toast({ title: 'Erreur', description: 'Le nom est requis pour chaque option supplémentaire.', variant: 'destructive' });
+      return;
+    }
 
     setSauvegarde(true);
     try {
@@ -340,6 +385,11 @@ const Calculateur = () => {
           description: rabaisDropdown.description,
         },
         dateExpiration,
+        options: options.map((o, i) => ({
+          nom: o.nom.trim(),
+          prixDescription: o.prixDescription.trim() || 'Sur demande',
+          ordre: i,
+        })),
       });
 
       toast({
@@ -369,7 +419,7 @@ const Calculateur = () => {
     };
     window.addEventListener('keydown', handler);
     return () => window.removeEventListener('keydown', handler);
-  }, [nomClient, segmentId, etablissements, rabaisState, rabaisDropdown, notes, notesPerso, fraisOfferts]);
+  }, [nomClient, segmentId, etablissements, rabaisState, rabaisDropdown, notes, notesPerso, fraisOfferts, options]);
 
   // ============================================================
   // Rendu
@@ -841,7 +891,87 @@ const Calculateur = () => {
           </Collapsible>
         </Card>
 
-        {/* Boutons d'action */}
+        {/* Section 7 — Options supplémentaires */}
+        <Card>
+          <Collapsible defaultOpen={false}>
+            <CollapsibleTrigger asChild>
+              <CardHeader className="pb-3 cursor-pointer select-none">
+                <div className="flex items-center justify-between">
+                  <CardTitle className="text-base">7. Options supplémentaires (au besoin)</CardTitle>
+                  <div className="flex items-center gap-1 text-muted-foreground">
+                    {options.length > 0 && (
+                      <span className="text-xs font-normal px-2 py-0.5 rounded-full"
+                        style={{ background: 'hsl(var(--primary) / 0.1)', color: 'hsl(var(--primary))' }}>
+                        {options.length} option{options.length > 1 ? 's' : ''}
+                      </span>
+                    )}
+                    <ChevronRight className="h-4 w-4 transition-transform [[data-state=open]>&]:rotate-90" />
+                  </div>
+                </div>
+              </CardHeader>
+            </CollapsibleTrigger>
+            <CollapsibleContent>
+              <CardContent className="space-y-3 pt-0">
+                {/* Suggestions rapides */}
+                <div className="flex flex-wrap gap-2">
+                  {optionsDefaut.map(opt => (
+                    <Button
+                      key={opt.nom}
+                      variant="outline"
+                      size="sm"
+                      className="text-xs h-7 gap-1"
+                      onClick={() => ajouterOption(opt)}
+                      disabled={options.length >= 10}>
+                      <Plus className="h-3 w-3" />{opt.nom}
+                    </Button>
+                  ))}
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="text-xs h-7 gap-1"
+                    onClick={() => ajouterOption()}
+                    disabled={options.length >= 10}>
+                    <Plus className="h-3 w-3" />Option personnalisée
+                  </Button>
+                </div>
+
+                {options.length >= 10 && (
+                  <p className="text-xs text-muted-foreground">Maximum 10 options atteint.</p>
+                )}
+
+                {/* Liste des options ajoutées */}
+                {options.map(opt => (
+                  <div key={opt.id} className="flex gap-2 items-start p-3 rounded-lg border"
+                    style={{ background: 'hsl(var(--muted) / 0.3)' }}>
+                    <div className="flex-1 space-y-2">
+                      <Input
+                        placeholder="Nom de l'option *"
+                        value={opt.nom}
+                        onChange={e => majOption(opt.id, 'nom', e.target.value)}
+                        className="h-9 text-sm"
+                      />
+                      <Input
+                        placeholder="Prix / description (ex. : 50 $ / unité / mois)"
+                        value={opt.prixDescription}
+                        onChange={e => majOption(opt.id, 'prixDescription', e.target.value)}
+                        className="h-9 text-sm"
+                      />
+                    </div>
+                    <Button
+                      size="icon"
+                      variant="ghost"
+                      className="h-9 w-9 text-destructive"
+                      onClick={() => supprimerOption(opt.id)}>
+                      <Trash2 className="h-4 w-4" />
+                    </Button>
+                  </div>
+                ))}
+              </CardContent>
+            </CollapsibleContent>
+          </Collapsible>
+        </Card>
+
+
         <div className="flex gap-3 pb-6">
           <Button
             onClick={handleSauvegarder}
@@ -968,6 +1098,25 @@ const Calculateur = () => {
             <div className="text-center p-3 rounded-lg text-sm font-medium"
               style={{ background: 'hsl(var(--success) / 0.1)', color: 'hsl(var(--success))' }}>
               Économie totale : {formatPourcentage(pctRabaisTotal)}
+            </div>
+          )}
+
+          {/* Options disponibles */}
+          {options.length > 0 && (
+            <div className="border-t pt-3">
+              <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-2">
+                Options disponibles
+              </p>
+              <div className="space-y-1">
+                {options.map(opt => (
+                  <div key={opt.id} className="flex justify-between text-xs gap-2">
+                    <span className="text-muted-foreground truncate">{opt.nom || '—'}</span>
+                    <span className="text-muted-foreground text-right flex-shrink-0">
+                      {opt.prixDescription || 'Sur demande'}
+                    </span>
+                  </div>
+                ))}
+              </div>
             </div>
           )}
         </div>

@@ -30,7 +30,7 @@ const SoumissionPresentation = () => {
     );
   }
 
-  const { soumission, etablissements, rabais, roi } = data;
+  const { soumission, etablissements, rabais, roi, options } = data;
 
   return (
     <div className="min-h-screen flex flex-col" style={{ background: 'hsl(var(--sidebar-background))' }}>
@@ -174,6 +174,43 @@ const SoumissionPresentation = () => {
             </div>
           </div>
         )}
+
+        {/* Options supplémentaires */}
+        {options && options.length > 0 && (
+          <div className="p-6 rounded-2xl" style={{ background: 'hsl(var(--sidebar-accent))' }}>
+            <h3 className="font-semibold mb-4" style={{ color: 'hsl(var(--sidebar-foreground))' }}>
+              Options supplémentaires (au besoin)
+            </h3>
+            <div className="rounded-xl overflow-hidden border" style={{ borderColor: 'hsl(var(--sidebar-border))' }}>
+              <table className="w-full text-sm">
+                <thead>
+                  <tr style={{ background: 'hsl(var(--sidebar-accent))' }}>
+                    <th className="text-left px-4 py-3 text-xs font-semibold uppercase tracking-wider"
+                      style={{ color: 'hsl(var(--sidebar-foreground) / 0.6)' }}>Option</th>
+                    <th className="text-right px-4 py-3 text-xs font-semibold uppercase tracking-wider"
+                      style={{ color: 'hsl(var(--sidebar-foreground) / 0.6)' }}>Prix</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {options.map((opt: any) => (
+                    <tr key={opt.id} className="border-t" style={{ borderColor: 'hsl(var(--sidebar-border))' }}>
+                      <td className="px-4 py-3 font-medium" style={{ color: 'hsl(var(--sidebar-foreground))' }}>
+                        {opt.nom}
+                      </td>
+                      <td className="px-4 py-3 text-right" style={{ color: 'hsl(var(--sidebar-foreground) / 0.7)' }}>
+                        {opt.prix_description || 'Sur demande'}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            <p className="text-xs mt-3" style={{ color: 'hsl(var(--sidebar-foreground) / 0.4)', fontStyle: 'italic' }}>
+              Ces options sont informatives et n'affectent pas les totaux ci-dessus.
+            </p>
+          </div>
+        )}
+
 
         {/* ROI */}
         {roi.soumission_roi && (
