@@ -85,6 +85,36 @@ export type Database = {
         }
         Relationships: []
       }
+      modules_produit: {
+        Row: {
+          actif: boolean | null
+          created_at: string | null
+          description: string | null
+          id: string
+          nom: string
+          ordre: number
+          slug: string
+        }
+        Insert: {
+          actif?: boolean | null
+          created_at?: string | null
+          description?: string | null
+          id?: string
+          nom: string
+          ordre?: number
+          slug: string
+        }
+        Update: {
+          actif?: boolean | null
+          created_at?: string | null
+          description?: string | null
+          id?: string
+          nom?: string
+          ordre?: number
+          slug?: string
+        }
+        Relationships: []
+      }
       modules_roi: {
         Row: {
           actif: boolean | null
@@ -182,6 +212,42 @@ export type Database = {
           },
         ]
       }
+      prix_modules_produit: {
+        Row: {
+          id: string
+          module_produit_id: string
+          prix_unitaire: number
+          segment_id: string
+        }
+        Insert: {
+          id?: string
+          module_produit_id: string
+          prix_unitaire: number
+          segment_id: string
+        }
+        Update: {
+          id?: string
+          module_produit_id?: string
+          prix_unitaire?: number
+          segment_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "prix_modules_produit_module_produit_id_fkey"
+            columns: ["module_produit_id"]
+            isOneToOne: false
+            referencedRelation: "modules_produit"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "prix_modules_produit_segment_id_fkey"
+            columns: ["segment_id"]
+            isOneToOne: false
+            referencedRelation: "segments"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       rabais: {
         Row: {
           actif: boolean | null
@@ -259,6 +325,42 @@ export type Database = {
           updated_at?: string | null
         }
         Relationships: []
+      }
+      soumission_etablissement_modules: {
+        Row: {
+          id: string
+          module_produit_id: string
+          prix_unitaire: number
+          soumission_etablissement_id: string
+        }
+        Insert: {
+          id?: string
+          module_produit_id: string
+          prix_unitaire: number
+          soumission_etablissement_id: string
+        }
+        Update: {
+          id?: string
+          module_produit_id?: string
+          prix_unitaire?: number
+          soumission_etablissement_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "soumission_etablissement_modul_soumission_etablissement_id_fkey"
+            columns: ["soumission_etablissement_id"]
+            isOneToOne: false
+            referencedRelation: "soumission_etablissements"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "soumission_etablissement_modules_module_produit_id_fkey"
+            columns: ["module_produit_id"]
+            isOneToOne: false
+            referencedRelation: "modules_produit"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       soumission_etablissements: {
         Row: {
@@ -491,6 +593,7 @@ export type Database = {
           cout_total_an1: number | null
           created_at: string | null
           date_expiration: string | null
+          est_rqra: boolean | null
           frais_integration: number | null
           frais_integration_offerts: boolean | null
           id: string
@@ -511,6 +614,7 @@ export type Database = {
           cout_total_an1?: number | null
           created_at?: string | null
           date_expiration?: string | null
+          est_rqra?: boolean | null
           frais_integration?: number | null
           frais_integration_offerts?: boolean | null
           id?: string
@@ -531,6 +635,7 @@ export type Database = {
           cout_total_an1?: number | null
           created_at?: string | null
           date_expiration?: string | null
+          est_rqra?: boolean | null
           frais_integration?: number | null
           frais_integration_offerts?: boolean | null
           id?: string
